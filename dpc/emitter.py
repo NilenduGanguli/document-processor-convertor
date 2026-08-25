@@ -125,6 +125,16 @@ def _y_of(rect: tuple[int, int, int, int] | None) -> float:
     return float(rect[1]) if rect else float("inf")
 
 
+def _block_md(block: TextBlock) -> tuple[str, str]:
+    """One block's markdown and its anchor tag."""
+    if block.zone in (Zone.title, Zone.heading):
+        return _heading(block), str(block.zone)
+    if block.zone is Zone.furniture:
+        tag = f"furniture:{block.role}" if block.role else "furniture"
+        return _clean(block.text), tag
+    return _clean(block.text), block.role or "p"
+
+
 def _page_elements(
     view: LayoutView, page: int
 ) -> list[tuple[str | None, str]]:
@@ -136,6 +146,34 @@ def _page_elements(
     end of the page rather than guessing a position.
     """
     blocks = [b for b in view.blocks if b.page == page and b.zone is not Zone.table]
+
+    # A reader with no geometry can still state ORDER: when anything on the page carries a
+    # provider sequence, the whole page is emitted in (seq, kind) order and the y-splice
+    # below never runs. Found by two independent reviews of the first HTML/XLSX output —
+    # with every element at y=inf, `inf <= inf` spliced all tables ahead of all text, so a
+    # filing's financial statements rendered before its prose and a sheet's table before
+    # its own name.
+    seq_items: list[tuple[int, int, str | None, str]] = []
+    any_seq = any(b.seq is not None for b in blocks) or any(
+        t.seq is not None for t in view.tables if t.page == page
+    )
+    if any_seq:
+        order = 0
+        for block in blocks:
+            md, tag = _block_md(block)
+            if md:
+                seq_items.append((block.seq if block.seq is not None else 10**9, order,
+                                  _anchor(page, _rect(block.bbox), tag), md))
+            order += 1
+        for table in (t for t in view.tables if t.page == page):
+            md = _table_md(table)
+            if md:
+                tag = f"table {table.row_count}x{table.col_count}"
+                seq_items.append((table.seq if table.seq is not None else 10**9, order,
+                                  _anchor(page, _rect(table.bbox), tag), md))
+            order += 1
+        seq_items.sort(key=lambda item: (item[0], item[1]))
+        return [(anchor, md) for _, _, anchor, md in seq_items]
 
     # (splice_y, sequence, anchor, markdown) — sequence keeps the sort stable so same-y
     # elements keep their relative order.
@@ -167,18 +205,16 @@ def _page_elements(
     for block in blocks:
         rect = _rect(block.bbox)
         block_y = _y_of(rect)
-        while next_item is not None and next_item[0] <= block_y:
+        # Strictly-below only, and never for items with NO geometry (y=inf): those append
+        # at the end of the page, exactly as the module docstring promises.
+        while (
+            next_item is not None
+            and next_item[0] != float("inf")
+            and next_item[0] <= block_y
+        ):
             out.append((next_item[2], next_item[3]))
             next_item = next(pending, None)
-        if block.zone in (Zone.title, Zone.heading):
-            tag = str(block.zone)
-            md = _heading(block)
-        elif block.zone is Zone.furniture:
-            tag = f"furniture:{block.role}" if block.role else "furniture"
-            md = _clean(block.text)
-        else:
-            tag = block.role or "p"
-            md = _clean(block.text)
+        md, tag = _block_md(block)
         if md:
             out.append((_anchor(page, rect, tag), md))
     while next_item is not None:

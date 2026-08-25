@@ -10,8 +10,9 @@ statement about what they are. Two paths out, chosen by what the bytes actually 
   page — goes to Azure Document Intelligence via :class:`~dpc.ocr_client.OcrClient`, **whole**,
   and comes back through :func:`dpc.adapters.from_azure`. Provider ``"azure_layout"``.
 
-Whether a page is a scan is the same per-page rule the sibling DCE service uses: below
-``settings.min_alnum_chars`` alphanumeric characters, a page's text layer is treated as
+Whether a page is a scan is the same per-page rule the sibling DCE service measured its way
+to: below ``settings.min_alnum_chars`` alphanumeric characters AND carrying at least one
+image. A sparse page with no pixels is not a scan — OCR would recover nothing — so it is
 absent. Watermarks and "Scanned by …" artefacts clear a lower bar; real prose clears this one.
 
 **The whole document goes to DI when any page is a scan** — including the border case of a
@@ -185,7 +186,14 @@ def _read_pdf(
                 )
             )
             page_blocks = _page_blocks(page, number)
-            if sum(_count_alnum(b.text) for b in page_blocks) < settings.min_alnum_chars:
+            sparse = sum(_count_alnum(b.text) for b in page_blocks) < settings.min_alnum_chars
+            # Below the floor AND carrying pixels = a scan. Below the floor with NO images is
+            # merely a sparse page — a blank separator, an EDGAR "TABLE OF CONTENTS" link
+            # anchor — and OCR would recover nothing from it. The sibling DCE service shipped
+            # the naive version of this rule and it sent a 119-page born-digital proxy
+            # statement to OCR because its blank pages tripped the floor; the corpus sweep
+            # reproduced exactly that here (ReadTimeout on a filing with no scan in it).
+            if sparse and page.get_images():
                 scanned += 1
             else:
                 blocks.extend(page_blocks)
@@ -230,6 +238,32 @@ def _read_pdf(
     return view, PROVIDER_PYMUPDF
 
 
+def _is_xlsx(data: bytes) -> bool:
+    """A zip whose members say xlsx. Content, never the filename: a caller's name is a hint
+    and the corpus sweep sent real .xlsx bytes to an OCR mock because nothing looked."""
+    if not data.startswith(b"PK\x03\x04"):
+        return False
+    import io
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            names = set(zf.namelist()[:50])
+    except Exception:  # noqa: BLE001 - not a readable zip, so not an xlsx
+        return False
+    return "xl/workbook.xml" in names or "[Content_Types].xml" in names and any(
+        n.startswith("xl/") for n in names
+    )
+
+
+def _looks_html(data: bytes) -> bool:
+    """Markup sniff over the first KiB, tolerant of BOMs and leading whitespace."""
+    head = data[:1024].lstrip(b"\xef\xbb\xbf \t\r\n").lower()
+    return head.startswith((b"<!doctype html", b"<html", b"<head", b"<body")) or (
+        head.startswith(b"<") and b"<html" in data[:4096].lower()
+    )
+
+
 def read_document(
     data: bytes, *, filename: str | None, settings: Settings
 ) -> tuple[LayoutView, str]:
@@ -258,6 +292,14 @@ def read_document(
         )
     if _is_pdf(data):
         return _read_pdf(data, filename=filename, settings=settings)
+    if _is_xlsx(data):
+        from dpc.xlsxread import read_xlsx
+
+        return read_xlsx(data), "openpyxl"
+    if _looks_html(data):
+        from dpc.htmlread import read_html
+
+        return read_html(data), "htmlread"
     content_type = _content_type(data, filename)
     return _recognize(
         data,

@@ -41,7 +41,12 @@ class Settings(BaseSettings):
     azure_di_endpoint: str = ""
     azure_di_key: str = ""
     azure_di_api_version: str = "2024-11-30"
-    ocr_timeout_seconds: float = 60.0
+    #: Wall clock for one analyse, submit and polling together. Sized for a LARGE scan on
+    #: real Document Intelligence (~1s/page means a 100-page scan alone needs ~100s): the
+    #: corpus sweep showed 60s failing every 100+ page scanned filing while everything else
+    #: finished in single-digit seconds. Local mocks are slower still — the compose file
+    #: raises this for them.
+    ocr_timeout_seconds: float = 180.0
     ocr_poll_interval_seconds: float = 0.5
     ocr_max_polls: int = 120
 

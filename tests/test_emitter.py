@@ -302,3 +302,52 @@ def test_no_bbox_no_anchor() -> None:
     i = lines.index("Trailing note without geometry.")
     assert not lines[i - 1].startswith("<!--"), "no-bbox block must not receive an anchor"
     assert lines[i - 1] == ""
+
+
+def test_seq_orders_a_page_that_has_no_geometry():
+    """Two independent reviews of the first HTML/XLSX output found the same defect: with
+    every element at y=inf, `inf <= inf` spliced all tables ahead of all text, so a filing's
+    financial statements rendered before its prose and a sheet's table before its own name.
+    `seq` is the fix — provider order made expressible without inventing rectangles — and an
+    element carrying seq must never gain an anchor from it."""
+    from dpc.models import Cell, LayoutView, PageInfo, Table, TextBlock, Zone
+
+    view = LayoutView(
+        doc_id="seq",
+        pages=[PageInfo(page=1)],
+        blocks=[
+            TextBlock(text="Sheet One", zone=Zone.heading, page=1, seq=0),
+            TextBlock(text="after the table", zone=Zone.body, page=1, seq=2),
+        ],
+        tables=[
+            Table(
+                table_id="t1", page=1, row_count=1, col_count=1,
+                cells=[Cell(row=0, col=0, text="cell")], seq=1,
+            )
+        ],
+    )
+    md = to_pmd(view, source="document", provider="test")
+    heading = md.index("## Sheet One")
+    table = md.index("| cell |")
+    after = md.index("after the table")
+    assert heading < table < after
+    assert "<!-- @" not in md, "seq is ordering, never an anchor"
+
+
+def test_without_seq_geometry_free_extras_append_at_page_end():
+    """The docstring's promise, now actually true: `inf <= inf` used to splice them first."""
+    from dpc.models import Cell, LayoutView, PageInfo, Table, TextBlock, Zone
+
+    view = LayoutView(
+        doc_id="noseq",
+        pages=[PageInfo(page=1)],
+        blocks=[TextBlock(text="prose first", zone=Zone.body, page=1)],
+        tables=[
+            Table(
+                table_id="t1", page=1, row_count=1, col_count=1,
+                cells=[Cell(row=0, col=0, text="cell")],
+            )
+        ],
+    )
+    md = to_pmd(view, source="document", provider="test")
+    assert md.index("prose first") < md.index("| cell |")

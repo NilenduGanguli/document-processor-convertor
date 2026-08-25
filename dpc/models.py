@@ -38,6 +38,11 @@ class TextBlock(BaseModel):
     page: int = 1
     bbox: Quad | None = None
     role: str | None = None      # verbatim provider role, when it had one
+    #: Provider document-order index across ALL element kinds on the document. Orthogonal to
+    #: geometry on purpose: a reader with no coordinates (HTML, XLSX) can still state the
+    #: order things appeared in, without inventing rectangles — ordering is a claim about
+    #: sequence, an anchor is a claim about position, and only the second needs a bbox.
+    seq: int | None = None
 
 
 class Cell(BaseModel):
@@ -57,6 +62,8 @@ class Table(BaseModel):
     col_count: int = 0
     cells: list[Cell] = Field(default_factory=list)
     bbox: Quad | None = None
+    #: See TextBlock.seq.
+    seq: int | None = None
 
     def grid(self) -> list[list[str]]:
         """Cells as a dense row-major grid; a span's text lands top-left, blanks elsewhere."""

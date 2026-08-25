@@ -16,6 +16,7 @@ dependencies = [
     "psycopg[binary]",
     "httpx",
     "pymupdf",
+    "openpyxl",
 ]
 
 [project.optional-dependencies]

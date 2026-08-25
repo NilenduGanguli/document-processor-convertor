@@ -3,7 +3,7 @@
  * fetches its stored markdown back out of S3 and opens it in the same viewer Convert uses,
  * so what you review later is what was stored, not what was echoed.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getConversion, getMarkdown, listConversions, type ConversionRow } from '../api';
 import { Badge, EmptyState, ErrorNotice, PageHead, Panel, Spinner, type BadgeTone } from '../components';
@@ -32,6 +32,19 @@ export default function History() {
   const [meta, setMeta] = useState<ViewerMeta | undefined>();
   const [loadingDoc, setLoadingDoc] = useState(false);
   const [docError, setDocError] = useState<unknown>(null);
+  // The viewer renders below a 50-row table, which put it ~3000px under the fold: a row
+  // click looked dead while the fetch and render both succeeded. Scrolling the viewer into
+  // view on selection is the difference between "broken" and "working" for a first-time
+  // user, and it was found exactly that way.
+  const viewerRef = useRef<HTMLDivElement>(null);
+  // Effect, not a call inside open(): the viewer's div does not EXIST until the fetch
+  // resolves and React re-renders, so a scroll issued at click time targets a null ref —
+  // which is precisely how the first version of this fix silently did nothing.
+  useEffect(() => {
+    if (loadingDoc || markdown != null) {
+      viewerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [loadingDoc, markdown]);
 
   const refresh = useCallback(() => {
     setListError(null);
@@ -170,15 +183,17 @@ export default function History() {
           )}
         </Panel>
 
-        {loadingDoc && (
-          <Panel title="document">
-            <Spinner label="fetching markdown…" />
-          </Panel>
-        )}
-        {docError != null && <ErrorNotice error={docError} />}
-        {markdown != null && (
-          <ResultViewer markdown={markdown} meta={meta} title={`stored PMD — ${selected}`} />
-        )}
+        <div ref={viewerRef}>
+          {loadingDoc && (
+            <Panel title="document">
+              <Spinner label="fetching markdown…" />
+            </Panel>
+          )}
+          {docError != null && <ErrorNotice error={docError} />}
+          {markdown != null && (
+            <ResultViewer markdown={markdown} meta={meta} title={`stored PMD — ${selected}`} />
+          )}
+        </div>
       </div>
     </div>
   );

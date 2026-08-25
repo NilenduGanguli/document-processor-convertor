@@ -9,6 +9,16 @@ services:
       DPC_S3_ACCESS_KEY: dpc
       DPC_S3_SECRET_KEY: dpc-secret
       DPC_S3_BUCKET: docmd
+      # In-network Azure DI, used ONLY when a raw document needs optical recognition (an
+      # image, or a PDF page with no text layer). Locally this is the mock in the DES stack;
+      # in the cluster it is the DI pod. Empty disables the path: scans then come back as a
+      # structured needs_ocr refusal rather than a guess.
+      DPC_AZURE_DI_ENDPOINT: "${DPC_AZURE_DI_ENDPOINT:-http://host.docker.internal:5007}"
+      DPC_AZURE_DI_KEY: "${DPC_AZURE_DI_KEY:-mock}"
+      # The local mock rasterises + Tesseracts at ~4s/page, so a 141-page scanned filing
+      # needs ~10 minutes. Real DI is ~1s/page; deployments against it can drop this back
+      # towards the code default (180).
+      DPC_OCR_TIMEOUT_SECONDS: "${DPC_OCR_TIMEOUT_SECONDS:-900}"
     # Conditions, not bare names: a bare depends_on orders CREATION, not readiness, and the
     # app racing Postgres is exactly the failure the first boot of this stack produced. The
     # app also retries schema init itself (dpc/db.py) — belt and braces, because compose

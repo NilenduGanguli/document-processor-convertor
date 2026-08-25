@@ -340,3 +340,79 @@ def test_api_paths_never_fall_through_to_spa(client: TestClient) -> None:
     response = client.get("/api/v1/nope")
     assert response.status_code == 404
     assert response.headers["content-type"].startswith("application/json")
+
+
+def test_the_artifact_carries_no_wall_clock_and_identical_input_yields_identical_bytes(
+    client,
+):
+    """The corpus sweep's finding, pinned.
+
+    A per-second `generated` stamp in the front matter made any two conversions that
+    straddled a second boundary produce different bytes — so exactly the slow documents
+    (OCR round trips, 100-page filings) failed the determinism guarantee while fast ones
+    passed by luck. The artifact now carries no timestamp at all: conversion time is the
+    row's created_at, and sha256_markdown is thereby a content-addressable dedupe key.
+    """
+    payload = {
+        "doc_id": "det",
+        "azure_analyze_result": {
+            "analyzeResult": {
+                "apiVersion": "2024-11-30",
+                "modelId": "prebuilt-layout",
+                "pages": [{"pageNumber": 1, "width": 612, "height": 792, "unit": "point"}],
+                "paragraphs": [
+                    {
+                        "content": "DETERMINISM PROBE",
+                        "boundingRegions": [
+                            {"pageNumber": 1, "polygon": [10, 10, 100, 10, 100, 30, 10, 30]}
+                        ],
+                        "spans": [{"offset": 0, "length": 17}],
+                    }
+                ],
+            }
+        },
+        "echo": True,
+    }
+    first = client.post("/api/v1/convert", json=payload)
+    second = client.post("/api/v1/convert", json=payload)
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.json()["sha256_markdown"] == second.json()["sha256_markdown"]
+    assert "generated:" not in first.json()["markdown"]
+
+
+def test_an_ocr_failure_is_a_structured_502_not_a_bare_500(backends, monkeypatch):
+    """Ten corpus files came back as the literal string 'Internal Server Error'.
+
+    raise_server_exceptions=False because that is how a real client sees the app: the
+    default TestClient re-raises inside the test and the handler under test never runs.
+    """
+    import sys
+    import types
+
+    from dpc.api import app
+
+    client = TestClient(app, raise_server_exceptions=False)
+
+    fake = types.ModuleType("dpc.pdfread")
+
+    class NeedsRecognition(Exception):
+        pass
+
+    class OcrError(Exception):
+        pass
+
+    def read_document(data, *, filename, settings):
+        raise OcrError("OCR job at 'host' ended with status 'failed'")
+
+    fake.NeedsRecognition = NeedsRecognition
+    fake.read_document = read_document
+    monkeypatch.setitem(sys.modules, "dpc.pdfread", fake)
+
+    r = client.post(
+        "/api/v1/convert",
+        json={"content_base64": "aGVsbG8=", "filename": "x.png"},
+    )
+    assert r.status_code == 502
+    body = r.json()
+    assert body["error"] == "ocr_failed"
+    assert "request_id" in body

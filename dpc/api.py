@@ -138,6 +138,31 @@ async def _needs_ocr_handler(request: Request, exc: _NeedsOcr) -> JSONResponse:
     return JSONResponse(status_code=422, content={"error": "needs_ocr", "detail": exc.detail})
 
 
+@app.exception_handler(Exception)
+async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
+    # Every failure leaves as JSON with a name and the request id -- never bare text. The
+    # corpus sweep drove 124 real files through /convert and ten came back as the literal
+    # string "Internal Server Error": OcrError/OcrTimeout had no mapping, so callers got a
+    # body they could not parse and no id to quote. Mapping is by exception NAME rather
+    # than import so this handler cannot itself fail on a build without ocr_client.
+    name = type(exc).__name__
+    status, error = {
+        "OcrTimeout": (504, "ocr_timeout"),
+        "OcrError": (502, "ocr_failed"),
+        "ValueError": (400, "invalid_input"),
+    }.get(name, (500, "internal"))
+    detail = str(exc)[:300] if status != 500 else f"unhandled {name}"
+    logger.error("convert failed error=%s status=%d", name, status)
+    return JSONResponse(
+        status_code=status,
+        content={
+            "error": error,
+            "detail": detail,
+            "request_id": request.headers.get("X-Request-Id", ""),
+        },
+    )
+
+
 @app.post("/api/v1/convert")
 def convert(request: ConvertRequest) -> dict[str, Any]:
     settings = get_settings()
@@ -175,13 +200,18 @@ def convert(request: ConvertRequest) -> dict[str, Any]:
         provider = str(view.raw.get("provider") or "")
 
     conversion_id = str(uuid.uuid4())
-    generated = dt.datetime.now(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # No wall clock in the artifact -- deliberately. The corpus sweep caught the first
+    # version: a per-second `generated` stamp made any two conversions that straddled a
+    # second boundary produce different bytes, so exactly the SLOW documents (OCR round
+    # trips, 100-page filings) failed the format's determinism guarantee while fast ones
+    # passed by luck. Conversion time is a fact about the conversion, not the document; it
+    # lives in the row's created_at. Identical input now yields identical bytes, which is
+    # what makes sha256_markdown a dedupe key.
     markdown = to_pmd(
         view,
         source=source,
         provider=provider,
         doc_id=request.doc_id,
-        generated=generated,
         extra={"sha256_input": sha_input},
     )
     sha_markdown = hashlib.sha256(markdown.encode("utf-8")).hexdigest()
