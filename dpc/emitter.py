@@ -43,7 +43,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from dpc.models import KeyValue, LayoutView, Mark, Quad, Table, TextBlock, Zone
+from dpc.models import KeyValue, LayoutView, Quad, Table, TextBlock, Zone
 
 PMD_VERSION = "1.0"
 GENERATOR = "document-processor-convertor"

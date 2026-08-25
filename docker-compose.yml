@@ -1,0 +1,69 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8300:8300"
+    environment:
+      DPC_PG_DSN: postgresql://dpc:dpc@postgres:5432/dpc
+      DPC_S3_ENDPOINT: http://minio:9000
+      DPC_S3_ACCESS_KEY: dpc
+      DPC_S3_SECRET_KEY: dpc-secret
+      DPC_S3_BUCKET: docmd
+    # Conditions, not bare names: a bare depends_on orders CREATION, not readiness, and the
+    # app racing Postgres is exactly the failure the first boot of this stack produced. The
+    # app also retries schema init itself (dpc/db.py) — belt and braces, because compose
+    # ordering does not survive a Postgres restart while the app stays up.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  postgres:
+    image: postgres:16
+    ports:
+      - "5438:5432"
+    environment:
+      POSTGRES_USER: dpc
+      POSTGRES_PASSWORD: dpc
+      POSTGRES_DB: dpc
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dpc -d dpc"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9004:9000"
+      - "9005:9001"
+    environment:
+      MINIO_ROOT_USER: dpc
+      MINIO_ROOT_PASSWORD: dpc-secret
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 3s
+      timeout: 5s
+      retries: 15
+
+  minio-init:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 dpc dpc-secret; do sleep 1; done;
+      mc mb --ignore-existing local/docmd;
+      exit 0"
+
+volumes:
+  pg-data:
+  minio-data:

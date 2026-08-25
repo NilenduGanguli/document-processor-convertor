@@ -1,0 +1,2 @@
+node_modules/
+# dist is committed on purpose — the API container serves it.
