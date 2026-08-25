@@ -176,3 +176,26 @@ Frontend: `cd frontend && npm run build` emits `frontend/dist`, which the servic
 - Optional `X-API-Key` gate (`DPC_API_KEY`); fine to disable behind a service mesh.
 - Credentials come from the environment, never the image. The only outbound call is the
   optional in-network Azure DI endpoint.
+
+## Corpus verification
+
+The service is graded against the sibling DCE reference corpus — 124 real files: 98 PDFs
+(including 119- and 354-page scanned regulatory filings), 22 EDGAR HTML filings, 2 XLSX
+registers and 2 photo IDs. `tools/corpus_sweep.py` converts every file **twice** and grades
+the output, not the status code: anchor grammar, rectangle-inside-page geometry, page-marker
+monotonicity, alnum fidelity against an independent PyMuPDF read, and byte-determinism
+across the pair.
+
+Current result: **124 / 124**, zero determinism failures, ~28,000 anchors all grammar-valid
+and in-bounds. Determinism holds even through two full OCR round-trips of a 119-page scan
+(`sha256 b00fa10ed00e57a9…` both times), because the artifact deliberately carries no wall
+clock — conversion time lives in the database row, which is what makes `sha256_markdown` a
+content-addressed dedupe key.
+
+Reproduce with the stack running:
+
+    .venv/bin/python tools/corpus_sweep.py
+
+Large scanned documents are budget-bound: the local mock recognises at ~4 s/page (the
+compose file sets `DPC_OCR_TIMEOUT_SECONDS=900` for it); real Document Intelligence at
+~1 s/page fits the code default of 180.
