@@ -699,3 +699,83 @@ table.grid tbody tr.selected {
     padding: var(--s-4) var(--s-3);
   }
 }
+
+/* ------------------------------------------------------------- tree tab */
+/* The doctree viewer: an indented, collapsible outline. Rows are flex so kind badge,
+   path, and count chips align on one baseline; flow edges hang under their source row
+   in the connector color, visibly annotations rather than children. */
+
+.tree-view {
+  padding: var(--s-3) var(--s-4);
+}
+
+.tree-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding-bottom: var(--s-3);
+  margin-bottom: var(--s-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.tree-root,
+.tree-kids {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tree-kids {
+  margin-left: var(--s-4);
+  padding-left: var(--s-3);
+  border-left: 1px solid var(--border);
+}
+
+.tree-node {
+  margin: 2px 0;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  padding: 1px 0;
+}
+
+.tree-toggle {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font-size: var(--t-xs);
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.tree-toggle:hover {
+  background: var(--bg-hover);
+}
+
+.tree-toggle.leaf {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.tree-path {
+  font-size: var(--t-sm);
+  overflow-wrap: anywhere;
+}
+
+.tree-flow {
+  margin-left: calc(18px + var(--s-2));
+  font-size: var(--t-sm);
+  color: var(--fg-muted);
+}

@@ -1,0 +1,10 @@
+{
+  "fixture": "footnote",
+  "note": "Hand-labelled reading order for test_doctree_build.footnote_view: chapter title, both body paragraphs in page order, and the footnote-role block LAST — R15's interposer demotion moves it to its section's tail even though it sits between the paragraphs on the page.",
+  "order": [
+    "//doc/body[1]/sect[1]/h[1]",
+    "//doc/body[1]/sect[1]/p[1]",
+    "//doc/body[1]/sect[1]/p[2]",
+    "//doc/body[1]/sect[1]/fn[1]"
+  ]
+}

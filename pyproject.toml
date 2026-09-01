@@ -24,6 +24,12 @@ dev = [
     "pytest",
     "ruff",
 ]
+# The arrange pass's Vertex provider (SPEC-DOCTREE-1 §10). Optional on purpose: the client
+# imports google-genai lazily and reports the provider unavailable when absent, so the base
+# image carries no Google SDK unless a deployment opts in.
+arrange-vertex = [
+    "google-genai",
+]
 
 [tool.setuptools]
 packages = ["dpc"]

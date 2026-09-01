@@ -177,23 +177,50 @@ def patch_ocr(monkeypatch: pytest.MonkeyPatch, stub: DiStub) -> None:
 
 
 # ---------------------------------------------------------------------------
-# PDF with a text layer -> PyMuPDF
+# PDF with a text layer -> Azure DI, like every other PDF
+#
+# These four tests pinned the deleted local reader (provider ``pymupdf``, PyMuPDF block
+# quads, per-page numbering from ``page.rect``, ``max_pages`` truncating the read). PMD 2.0
+# §2.1 removes that path: a text-layer PDF is not special any more, and ``max_pages`` is a
+# refusal bound rather than a truncation bound because the whole document goes to Azure in
+# one billed call. They now pin the new contract instead.
 # ---------------------------------------------------------------------------
-def test_text_pdf_reads_with_pymupdf() -> None:
-    view, provider = read_document(text_pdf(), filename="form.pdf", settings=make_settings())
+def test_text_pdf_goes_to_di(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A perfectly readable text layer is still sent to DI — no local extraction, ever."""
+    data = text_pdf()
+    stub = DiStub()
+    patch_ocr(monkeypatch, stub)
+
+    view, provider = read_document(data, filename="form.pdf", settings=di_settings())
+
+    assert provider == "azure_layout"
+    assert view.raw["provider"] == "azure-prebuilt-layout"
+    assert stub.submissions[0][1] == data
+    assert stub.submissions[0][2]["content-type"] == "application/pdf"
+    # The view is DI's, not PyMuPDF's: the local text never appears in the output.
+    assert "Know Your Customer" not in view.text()
+    assert "RECOGNISED TITLE" in view.text()
+    assert view.pages[0].unit == "inch"
+
+
+def test_text_pdf_without_endpoint_refuses() -> None:
+    """No endpoint = a refusal a caller can read, never a silent local fallback (§2.3)."""
+    with pytest.raises(NeedsRecognition) as excinfo:
+        read_document(text_pdf(), filename="form.pdf", settings=make_settings())
+    assert "DPC_AZURE_DI_ENDPOINT" in excinfo.value.reason
+    assert "application/pdf, 1 page(s)" in excinfo.value.reason
+
+
+def test_local_pdf_text_escape_hatch_still_carries_rect_quads() -> None:
+    """The PyMuPDF path survives only behind DPC_ALLOW_LOCAL_PDF_TEXT, and is identifiable."""
+    settings = make_settings(allow_local_pdf_text=True)
+    view, provider = read_document(text_pdf(), filename=None, settings=settings)
     assert provider == "pymupdf"
     assert view.raw["provider"] == "pymupdf"
-    assert [p.page for p in view.pages] == [1]
     assert view.pages[0].unit == "point"
     assert round(view.pages[0].width) == 612
-    assert round(view.pages[0].height) == 792
-    assert view.blocks
     assert "Know Your Customer" in view.text()
     assert all(b.zone is Zone.body for b in view.blocks)
-
-
-def test_text_pdf_blocks_carry_rect_quads() -> None:
-    view, _ = read_document(text_pdf(), filename=None, settings=make_settings())
     for block in view.blocks:
         assert block.bbox is not None and len(block.bbox) == 8
         # Quad is the rectangle convention [x0,y0, x1,y0, x1,y1, x0,y1].
@@ -204,18 +231,23 @@ def test_text_pdf_blocks_carry_rect_quads() -> None:
         assert block.bbox[0] < block.bbox[2] and block.bbox[1] < block.bbox[5]
 
 
-def test_multipage_text_pdf_numbers_pages() -> None:
-    view, provider = read_document(text_pdf(3), filename=None, settings=make_settings())
-    assert provider == "pymupdf"
-    assert [p.page for p in view.pages] == [1, 2, 3]
-    assert sorted({b.page for b in view.blocks}) == [1, 2, 3]
+def test_multipage_text_pdf_goes_to_di_whole(monkeypatch: pytest.MonkeyPatch) -> None:
+    stub = DiStub()
+    patch_ocr(monkeypatch, stub)
+    data = text_pdf(3)
+    _, provider = read_document(data, filename=None, settings=di_settings())
+    assert provider == "azure_layout"
+    assert len(stub.submissions) == 1
+    assert stub.submissions[0][1] == data
 
 
-def test_max_pages_bounds_the_read() -> None:
-    view, _ = read_document(text_pdf(3), filename=None, settings=make_settings(max_pages=2))
-    assert [p.page for p in view.pages] == [1, 2]
-    assert view.raw["pages_total"] == 3
-    assert view.raw["pages_read"] == 2
+def test_max_pages_refuses_before_any_network_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Azure bills per page, so an over-long PDF is refused locally, before the submit."""
+    stub = DiStub()
+    patch_ocr(monkeypatch, stub)
+    with pytest.raises(ValueError, match="over the 2-page limit"):
+        read_document(text_pdf(3), filename=None, settings=di_settings(max_pages=2))
+    assert stub.submissions == []
 
 
 def test_oversize_document_refused() -> None:
@@ -229,21 +261,22 @@ def test_oversize_document_refused() -> None:
 def test_scanned_pdf_without_endpoint_raises_needs_recognition() -> None:
     with pytest.raises(NeedsRecognition) as excinfo:
         read_document(scanned_pdf(), filename="scan.pdf", settings=make_settings())
-    assert "no OCR endpoint is configured" in excinfo.value.reason
-    assert "text layer" in excinfo.value.reason
+    assert "no endpoint is configured (DPC_AZURE_DI_ENDPOINT)" in excinfo.value.reason
+    assert "Azure Document Intelligence" in excinfo.value.reason
 
 
 def test_mixed_pdf_without_endpoint_raises_needs_recognition() -> None:
+    """The old per-page scan count is gone; the refusal names the whole document's size."""
     with pytest.raises(NeedsRecognition) as excinfo:
         read_document(mixed_pdf(), filename=None, settings=make_settings())
-    assert "1 of 2 page(s)" in excinfo.value.reason
+    assert "application/pdf, 2 page(s)" in excinfo.value.reason
 
 
 def test_image_without_endpoint_raises_needs_recognition() -> None:
     with pytest.raises(NeedsRecognition) as excinfo:
         read_document(png_bytes(), filename="photo.png", settings=make_settings())
-    assert "not a PDF" in excinfo.value.reason
     assert "image/png" in excinfo.value.reason
+    assert "DPC_AZURE_DI_ENDPOINT" in excinfo.value.reason
 
 
 # ---------------------------------------------------------------------------

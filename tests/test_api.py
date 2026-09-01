@@ -44,6 +44,34 @@ AZURE_LAYOUT = {
     }
 }
 
+#: The same document on a POINT-unit page. Point coordinates already have adequate integer
+#: resolution (1/72 in), so no scale clause is emitted and the file stays PMD 1.0 — which is
+#: what keeps every stored sha256 for a non-inch payload verifiable across this change.
+AZURE_LAYOUT_POINT = {
+    "status": "succeeded",
+    "analyzeResult": {
+        "apiVersion": "2024-11-30",
+        "modelId": "prebuilt-layout",
+        "content": "ACME BANK\nAccount opening form",
+        "pages": [{"pageNumber": 1, "width": 612, "height": 792, "unit": "point"}],
+        "paragraphs": [
+            {
+                "role": "title",
+                "content": "ACME BANK",
+                "boundingRegions": [
+                    {"pageNumber": 1, "polygon": [72, 72, 288, 72, 288, 144, 72, 144]}
+                ],
+            },
+            {
+                "content": "Account opening form",
+                "boundingRegions": [
+                    {"pageNumber": 1, "polygon": [72, 216, 288, 216, 288, 288, 72, 288]}
+                ],
+            },
+        ],
+    },
+}
+
 AZURE_READ = {
     "status": "succeeded",
     "analyzeResult": {
@@ -277,7 +305,26 @@ def test_echo_returns_markdown_and_matches_stored(client: TestClient, backends: 
     assert response.status_code == 200
     body = response.json()
     assert body["markdown"] == blobs[body["s3_key"]]
-    assert body["markdown"].startswith("---\npmd: 1.0\n")
+    # 2.0, and the reason is visible in the file itself: this fixture is an INCH-unit page, so
+    # its anchors are milli-inches under a declared `scale=1000`. PMD 1.0 rounded inch
+    # coordinates to integers and collapsed the whole page onto an 8x11 grid — distinct rows
+    # emitted identical rectangles — so these bytes changed because they had to. A point or
+    # pixel payload takes no 2.0 feature and still declares 1.0; that half is pinned by
+    # test_a_point_unit_payload_is_still_pmd_1_0.
+    assert body["markdown"].startswith("---\npmd: 2.0\n")
+    assert "scale=1000" in body["markdown"]
+
+
+def test_a_point_unit_payload_is_still_pmd_1_0(client: TestClient) -> None:
+    """The compatibility half: no inch page, no canvas, no 2.0 feature, no changed bytes."""
+    response = client.post(
+        "/api/v1/convert", json={"azure_analyze_result": AZURE_LAYOUT_POINT, "echo": True}
+    )
+    assert response.status_code == 200
+    markdown = response.json()["markdown"]
+    assert markdown.startswith("---\npmd: 1.0\n")
+    assert "scale=" not in markdown
+    assert "```text" not in markdown
 
 
 # ---------------------------------------------------------------------------

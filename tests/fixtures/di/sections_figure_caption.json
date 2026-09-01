@@ -1,0 +1,341 @@
+{
+  "status": "succeeded",
+  "analyzeResult": {
+    "apiVersion": "2024-11-30",
+    "modelId": "prebuilt-layout",
+    "contentFormat": "text",
+    "content": "SYNTHETIC PRODUCT DATASHEET\nThe alpha widget integrates a synthetic flux capacitor for testing.\nFigure 1. Synthetic exploded view of the alpha widget.\nAssembly requires two synthetic fasteners and a calibration pass.\nFigure 2. Orphan calibration chart.",
+    "pages": [
+      {
+        "pageNumber": 1,
+        "angle": 0,
+        "width": 8.5,
+        "height": 11,
+        "unit": "inch",
+        "words": [],
+        "lines": [
+          {
+            "content": "SYNTHETIC PRODUCT DATASHEET",
+            "polygon": [
+              1.0,
+              0.6,
+              7.5,
+              0.6,
+              7.5,
+              0.95,
+              1.0,
+              0.95
+            ],
+            "spans": [
+              {
+                "offset": 0,
+                "length": 27
+              }
+            ]
+          },
+          {
+            "content": "The alpha widget integrates a synthetic flux capacitor for testing.",
+            "polygon": [
+              1.0,
+              1.4,
+              7.5,
+              1.4,
+              7.5,
+              1.9,
+              1.0,
+              1.9
+            ],
+            "spans": [
+              {
+                "offset": 28,
+                "length": 67
+              }
+            ]
+          },
+          {
+            "content": "Figure 1. Synthetic exploded view of the alpha widget.",
+            "polygon": [
+              1.6,
+              4.85,
+              6.9,
+              4.85,
+              6.9,
+              5.1,
+              1.6,
+              5.1
+            ],
+            "spans": [
+              {
+                "offset": 96,
+                "length": 54
+              }
+            ]
+          },
+          {
+            "content": "Assembly requires two synthetic fasteners and a calibration pass.",
+            "polygon": [
+              1.0,
+              5.5,
+              7.5,
+              5.5,
+              7.5,
+              6.0,
+              1.0,
+              6.0
+            ],
+            "spans": [
+              {
+                "offset": 151,
+                "length": 65
+              }
+            ]
+          }
+        ],
+        "spans": [
+          {
+            "offset": 0,
+            "length": 252
+          }
+        ]
+      }
+    ],
+    "paragraphs": [
+      {
+        "spans": [
+          {
+            "offset": 0,
+            "length": 27
+          }
+        ],
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              1.0,
+              0.6,
+              7.5,
+              0.6,
+              7.5,
+              0.95,
+              1.0,
+              0.95
+            ]
+          }
+        ],
+        "content": "SYNTHETIC PRODUCT DATASHEET",
+        "role": "title"
+      },
+      {
+        "spans": [
+          {
+            "offset": 28,
+            "length": 67
+          }
+        ],
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              1.0,
+              1.4,
+              7.5,
+              1.4,
+              7.5,
+              1.9,
+              1.0,
+              1.9
+            ]
+          }
+        ],
+        "content": "The alpha widget integrates a synthetic flux capacitor for testing."
+      },
+      {
+        "spans": [
+          {
+            "offset": 96,
+            "length": 54
+          }
+        ],
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              1.6,
+              4.85,
+              6.9,
+              4.85,
+              6.9,
+              5.1,
+              1.6,
+              5.1
+            ]
+          }
+        ],
+        "content": "Figure 1. Synthetic exploded view of the alpha widget."
+      },
+      {
+        "spans": [
+          {
+            "offset": 151,
+            "length": 65
+          }
+        ],
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              1.0,
+              5.5,
+              7.5,
+              5.5,
+              7.5,
+              6.0,
+              1.0,
+              6.0
+            ]
+          }
+        ],
+        "content": "Assembly requires two synthetic fasteners and a calibration pass."
+      }
+    ],
+    "tables": [],
+    "figures": [
+      {
+        "id": "1.1",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              1.5,
+              2.2,
+              7.0,
+              2.2,
+              7.0,
+              5.1,
+              1.5,
+              5.1
+            ]
+          }
+        ],
+        "spans": [
+          {
+            "offset": 96,
+            "length": 54
+          }
+        ],
+        "elements": [
+          "/paragraphs/2"
+        ],
+        "caption": {
+          "content": "Figure 1. Synthetic exploded view of the alpha widget.",
+          "boundingRegions": [
+            {
+              "pageNumber": 1,
+              "polygon": [
+                1.6,
+                4.85,
+                6.9,
+                4.85,
+                6.9,
+                5.1,
+                1.6,
+                5.1
+              ]
+            }
+          ],
+          "spans": [
+            {
+              "offset": 96,
+              "length": 54
+            }
+          ],
+          "elements": [
+            "/paragraphs/2"
+          ]
+        }
+      },
+      {
+        "id": "1.2",
+        "boundingRegions": [
+          {
+            "pageNumber": 1,
+            "polygon": [
+              1.5,
+              6.4,
+              7.0,
+              6.4,
+              7.0,
+              9.2,
+              1.5,
+              9.2
+            ]
+          }
+        ],
+        "spans": [
+          {
+            "offset": 217,
+            "length": 35
+          }
+        ],
+        "elements": [],
+        "caption": {
+          "content": "Figure 2. Orphan calibration chart.",
+          "boundingRegions": [
+            {
+              "pageNumber": 1,
+              "polygon": [
+                1.6,
+                8.95,
+                6.9,
+                8.95,
+                6.9,
+                9.2,
+                1.6,
+                9.2
+              ]
+            }
+          ],
+          "spans": [
+            {
+              "offset": 217,
+              "length": 35
+            }
+          ],
+          "elements": []
+        }
+      }
+    ],
+    "sections": [
+      {
+        "spans": [
+          {
+            "offset": 0,
+            "length": 252
+          }
+        ],
+        "elements": [
+          "/paragraphs/0",
+          "/sections/1"
+        ]
+      },
+      {
+        "spans": [
+          {
+            "offset": 28,
+            "length": 67
+          },
+          {
+            "offset": 151,
+            "length": 65
+          }
+        ],
+        "elements": [
+          "/paragraphs/1",
+          "/figures/0",
+          "/paragraphs/3",
+          "/figures/1"
+        ]
+      }
+    ]
+  }
+}

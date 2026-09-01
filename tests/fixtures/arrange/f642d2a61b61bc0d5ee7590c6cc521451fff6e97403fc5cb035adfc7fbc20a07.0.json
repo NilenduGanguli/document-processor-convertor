@@ -1,0 +1,23 @@
+{
+  "schema": "dpc-arrange-ops/1",
+  "ops": [
+    {
+      "op": "merge_flow",
+      "node": "n7",
+      "ref": "n9",
+      "reason": "COLUMN_CONTINUATION"
+    },
+    {
+      "op": "move_before",
+      "node": "n5",
+      "ref": "n4",
+      "reason": "ORDER_INVERSION"
+    },
+    {
+      "op": "move_after",
+      "node": "n11",
+      "ref": "n10",
+      "reason": "ORDER_INVERSION"
+    }
+  ]
+}

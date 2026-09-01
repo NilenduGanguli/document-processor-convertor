@@ -34,14 +34,36 @@ would double-count every cell in the lexical score.
 coercion below degrades to a sensible default. A malformed table costs you that table, not the
 classification.
 
+**Roles come from paragraphs, position comes from lines.** A paragraph's rectangle is the union
+hull of its lines, which for wrapped text spans several visual rows and so states the column
+correctly and the row not at all. :func:`_attach_lines` therefore joins ``pages[].lines[]`` onto
+the paragraph blocks by *span overlap* — both streams index the same top-level ``content``
+string, so the join is exact rather than geometric — and leaves each block holding the boxes a
+spatial renderer can actually place. A reader with no line stream keeps an empty ``lines`` list;
+nothing is ever synthesised by splitting text on newlines, because an invented rectangle is
+worse than no rectangle.
+
 Geometry is the Azure quad convention: 8 floats, 4 ``(x, y)`` points clockwise from top-left,
 in the page's own ``unit``.
 """
 from __future__ import annotations
 
+from bisect import bisect_left
 from typing import Any
 
-from dpc.models import Cell, KeyValue, LayoutView, Mark, PageInfo, Quad, Table, TextBlock, Zone
+from dpc.doctree.harvest import harvest_structure, to_raw
+from dpc.models import (
+    Cell,
+    KeyValue,
+    LayoutView,
+    Mark,
+    PageInfo,
+    Quad,
+    Table,
+    TextBlock,
+    TextLine,
+    Zone,
+)
 
 #: ``paragraphs[].role`` -> zone. Roles outside this map (``footnote``, ``formulaBlock``, or
 #: anything Azure adds later) fall through to :attr:`Zone.body` rather than being dropped.
@@ -404,6 +426,215 @@ def _map_blocks(
     ]
 
 
+#: ``_block_stream`` kinds: which payload array :func:`_map_blocks` built its blocks from.
+_STREAM_PARAGRAPHS = "paragraphs"
+_STREAM_LINES = "lines"
+_STREAM_CONTENT = "content"
+
+
+def _block_stream(result: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+    """Which stream :func:`_map_blocks` used, and the nodes it turned into blocks, in order.
+
+    Mirrors :func:`_map_blocks`'s own preference order and its one filter (a node whose text is
+    blank after stripping produces no block), so ``zip(nodes, blocks)`` pairs each block with
+    the node it came from. It deliberately does *not* reproduce the last-resort
+    ``content``-splitting path: those blocks have no provider node and therefore no spans, so
+    that case is reported as :data:`_STREAM_CONTENT` with no nodes, and the length check in
+    :func:`_attach_lines` is what detects it.
+
+    The *kind* matters as much as the nodes. In the ``paragraphs[]`` case a block is a hull over
+    several provider lines and the span join is the only thing that can recover the rows. In the
+    ``pages[].lines[]`` fallback each block **is** one provider line, already holding that line's
+    own single-row quad, so there is nothing to join and — critically — nothing that can fail:
+    see :func:`_attach_lines`.
+
+    Args:
+        result: An unwrapped ``analyzeResult``.
+
+    Returns:
+        ``(kind, nodes)``.
+    """
+    paragraphs = [node for node in _dicts(result.get("paragraphs")) if _text_of(node).strip()]
+    if paragraphs:
+        return _STREAM_PARAGRAPHS, paragraphs
+    lines = [
+        line
+        for page in _dicts(result.get("pages"))
+        for line in _dicts(page.get("lines"))
+        if _text_of(line).strip()
+    ]
+    if lines:
+        return _STREAM_LINES, lines
+    return _STREAM_CONTENT, []
+
+
+def _span_extent(spans: list[tuple[int, int]]) -> tuple[int, int]:
+    """Half-open ``[low, high)`` character extent covering every span in ``spans``.
+
+    A zero-length span is treated as one character wide, exactly as :func:`_spans_overlap` does,
+    so an empty paragraph marker still has a position rather than vanishing between two lines.
+    """
+    low = min(offset for offset, _ in spans)
+    high = max(offset + max(length, 1) for offset, length in spans)
+    return low, high
+
+
+def _adopt_own_lines(
+    nodes: list[dict[str, Any]], blocks: list[TextBlock]
+) -> tuple[int, int]:
+    """The ``pages[].lines[]`` fallback: every block already IS the line it needs.
+
+    When :func:`_map_blocks` had no ``paragraphs[]`` to work from, each block was built from one
+    provider line and the line's own single-row quad is right there on the node. There is no
+    join to do and — the point — nothing that can fail: a payload whose lines carry no ``spans``
+    at all (Azure omits them on a ``prebuilt-read`` result, and DES stores such pages verbatim)
+    would otherwise build zero span candidates, drop every line, and report ``0/N`` on the one
+    field §11.2 elevates to a health metric. That is a false alarm on top of throwing away
+    geometry the payload handed us, which is why this path exists at all. It is exactly what
+    :func:`from_azure_read` already does for its own line-shaped provider.
+
+    :attr:`Zone.table` blocks are still emptied rather than filled, for the same reason the span
+    join skips them: the emitter suppresses them from the body, so their lines are placed
+    nowhere while ``tables[]`` emits the same text again.
+
+    Assignment, not append — so a second call over the same blocks is a no-op, not a duplicate.
+
+    Args:
+        nodes: The ``pages[].lines[]`` nodes, in block order (from :func:`_block_stream`).
+        blocks: The blocks those nodes produced. Mutated in place.
+
+    Returns:
+        ``(attached, total)``.
+    """
+    attached = 0
+    for node, block in zip(nodes, blocks, strict=True):
+        if block.zone is Zone.table:
+            block.lines = []
+            continue
+        block.lines = [
+            TextLine(text=_text_of(node).strip(), bbox=_polygon_to_quad(node.get("polygon")))
+        ]
+        attached += 1
+    return attached, len(nodes)
+
+
+def _attach_lines(blocks: list[TextBlock], result: dict[str, Any]) -> tuple[int, int]:
+    """Attach ``pages[].lines[]`` geometry to paragraph blocks. Returns ``(attached, total)``.
+
+    Both streams index into the same top-level ``content`` string, so the join is EXACT via
+    :func:`_spans_overlap` rather than geometric. Each line goes to the block with the smallest
+    ``(first_span_offset, block_index)`` among those whose spans overlap it, where
+    ``first_span_offset`` is the block's SMALLEST span offset — ``min(offset)``, not
+    ``spans[0].offset``. That distinction is the whole determinism argument: nothing in
+    Microsoft's docs orders the entries *inside* a node's ``spans[]`` array, so a key read off
+    ``spans[0]`` would move a line to a different block — hence a different canvas, hence a
+    different sha256 — from the same bytes with one array reordered.
+
+    What the key does NOT promise is total independence from payload order. It is a total order
+    because ``block_index`` is unique, and ``block_index`` is the node's position in
+    ``paragraphs[]``. So two blocks that tie on ``min(offset)`` are separated by ``paragraphs[]``
+    order, and reordering *those two* moves the line between them. That is the spec's own rule
+    (§3.2) and it is deterministic for any given payload; it is not order-INDEPENDENCE, and
+    claiming it were would be a promise this function cannot keep.
+
+    A line that no block claims is DROPPED, not promoted: unclaimed lines are almost always
+    table-cell content, which ``tables[]`` already carries, and promoting them would emit the
+    text twice. Blocks whose zone is :attr:`Zone.table` are skipped for the same reason — the
+    emitter suppresses them from the body, so lines given to them would be placed nowhere.
+
+    The returned counts become the front matter's ``line_join`` field, whose whole purpose is to
+    make the one failure this design cannot prevent legible: if the two span streams disagree,
+    every line is dropped, every block falls back to its multi-row hull, and the output is a
+    perfectly ordinary file with no columns and no error. ``line_join: 0/430`` is the difference
+    between "this document has no columns" and "the join broke".
+
+    ``attached`` counts lines a block CLAIMED, not lines that can be placed. A claimed line whose
+    provider node had no ``polygon`` is attached with ``bbox=None`` and counted: it is a
+    geometry gap, not a join failure, and §4.2 already refuses to make an atom of it while the
+    ``reason`` histogram's ``no-geometry`` bucket names it. Folding the two together would fire
+    §11.2's kill criterion — "switch to geometric line→paragraph assignment" — on a document
+    whose join was perfect and whose provider simply omitted boxes, which is the one conclusion
+    that evidence cannot support.
+
+    ``total`` counts lines that have text: a blank line is not placeable content, and counting
+    it could only depress a ratio that exists to be read as a health signal.
+
+    Args:
+        blocks: The blocks :func:`_map_blocks` produced from ``result``. Mutated in place — a
+            block that enters the join has its ``lines`` REPLACED, so a second call over the
+            same blocks reproduces the first rather than appending every line twice.
+        result: The same unwrapped ``analyzeResult`` those blocks were mapped from.
+
+    Returns:
+        ``(attached, total)`` — lines given to a block, and lines offered.
+    """
+    kind, sources = _block_stream(result)
+    # A length mismatch means these blocks did not come from this stream (the ``content`` last
+    # resort, or a payload edited between the two calls). There is then no node to read spans
+    # from, so nothing is claimed and the count reports it, rather than joining by guesswork.
+    paired = len(sources) == len(blocks)
+    if kind == _STREAM_LINES and paired:
+        return _adopt_own_lines(sources, blocks)
+
+    candidates: list[tuple[int, int, int, list[tuple[int, int]], TextBlock]] = []
+    if paired:
+        for index, (node, block) in enumerate(zip(sources, blocks, strict=True)):
+            if block.zone is Zone.table:
+                continue
+            spans = _spans(node)
+            if not spans:
+                continue
+            low, high = _span_extent(spans)
+            # Replaced, not appended to: idempotence, so a re-run cannot duplicate text onto a
+            # canvas. Only blocks that actually enter the join are touched.
+            block.lines = []
+            candidates.append((low, high, index, spans, block))
+    # Scan order is by extent so the two cuts below can be made; claim order is the spec's
+    # (min_span_offset, block_index), applied by taking the minimum over the matches.
+    candidates.sort(key=lambda c: (c[0], c[1], c[2]))
+    lows = [c[0] for c in candidates]
+    # Running maximum of ``high`` over ``candidates[:j + 1]``. ``lows`` is sorted, so a bisect
+    # cuts the tail (a candidate starting at or after the line's end cannot overlap it) — but
+    # the head is the expensive half: without this array every line still tested every candidate
+    # starting before it, which is O(lines x blocks) and measured 49 s on 400 pages, inside a
+    # synchronous mapper, on a provider that accepts 2000. ``pmax[j] <= line_low`` proves that
+    # NO candidate at or below ``j`` reaches the line, so the walk stops there instead of at 0.
+    pmax: list[int] = []
+    run = -1
+    for candidate in candidates:
+        run = max(run, candidate[1])
+        pmax.append(run)
+
+    attached = 0
+    total = 0
+    for page in _dicts(result.get("pages")):
+        for line in _dicts(page.get("lines")):
+            text = _text_of(line).strip()
+            if not text:
+                continue
+            total += 1
+            line_spans = _spans(line)
+            if not line_spans:
+                continue
+            line_low, line_high = _span_extent(line_spans)
+            winner: TextBlock | None = None
+            best: tuple[int, int] | None = None
+            index_j = bisect_left(lows, line_high) - 1
+            while index_j >= 0 and pmax[index_j] > line_low:
+                low, _, index, spans, block = candidates[index_j]
+                index_j -= 1
+                if not _spans_overlap(line_spans, spans):
+                    continue
+                key = (low, index)
+                if best is None or key < best:
+                    best, winner = key, block
+            if winner is None:
+                continue
+            winner.lines.append(TextLine(text=text, bbox=_polygon_to_quad(line.get("polygon"))))
+            attached += 1
+    return attached, total
+
+
 def from_azure_layout(analyze_result: dict[str, Any]) -> LayoutView:
     """Build a :class:`LayoutView` from an Azure Document Intelligence Layout payload.
 
@@ -421,10 +652,13 @@ def from_azure_layout(analyze_result: dict[str, Any]) -> LayoutView:
     tables = _map_tables(result)
     table_spans, table_quads = _table_geometry(tables, result)
     blocks = _map_blocks(result, table_spans, table_quads)
+    # Unconditional: the join is cheap, purely additive (a block nobody claims for keeps its
+    # empty ``lines``), and the counts are the only evidence a reader gets that it worked.
+    line_join = _attach_lines(blocks, result)
     pages = _map_pages(result)
     if not pages and blocks:
         pages = [PageInfo(page=n) for n in sorted({b.page for b in blocks})]
-    return LayoutView(
+    view = LayoutView(
         pages=pages,
         blocks=blocks,
         tables=tables,
@@ -438,8 +672,19 @@ def from_azure_layout(analyze_result: dict[str, Any]) -> LayoutView:
             "api_version": str(result.get("apiVersion") or ""),
             "model_id": str(result.get("modelId") or ""),
             "content_chars": len(str(result.get("content") or "")),
+            # ``[attached, total]`` from the line join, for the emitter's ``line_join`` field.
+            # A list, not a tuple, so a stored view round-trips through JSON unchanged.
+            "_line_join": [line_join[0], line_join[1]],
         },
     )
+    # SPEC-DOCTREE-1 §3.1: sections/figures were being dropped here — the doctree's provider
+    # seed. Harvested as index refs only (never text) and stored in JSON form so a recorded
+    # view rebuilds the tree with no re-fetch. Key absent (not null) when the payload has no
+    # sections: absence IS the signal downstream (``passes.provider_sections = "absent"``).
+    structure = harvest_structure(result)
+    if structure is not None:
+        view.raw["structure"] = to_raw(structure)
+    return view
 
 
 # ---------------------------------------------------------------------------
@@ -532,12 +777,19 @@ def from_azure_read(analyze_result: dict[str, Any]) -> LayoutView:
             text = _text_of(line).strip()
             if not text:
                 continue
+            quad = _polygon_to_quad(line.get("boundingBox"))
             blocks.append(
                 TextBlock(
                     text=text,
                     zone=Zone.body,
                     page=number,
-                    bbox=_polygon_to_quad(line.get("boundingBox")),
+                    bbox=quad,
+                    # In Read there is no paragraph stream, so each block IS one provider line
+                    # and no span join is needed: the block's own rectangle is a real single-row
+                    # box, which is exactly what ``lines`` promises. Read gets full spatial
+                    # support for free — it loses zones, not geometry. Without a quad there is
+                    # nothing to place, and an empty list is the honest state.
+                    lines=[TextLine(text=text, bbox=quad)] if quad else [],
                 )
             )
     version = _as_dict(_as_dict(analyze_result).get("analyzeResult")).get("version")
@@ -550,6 +802,12 @@ def from_azure_read(analyze_result: dict[str, Any]) -> LayoutView:
             "api_version": str(version or _as_dict(analyze_result).get("version") or ""),
             "model_id": "read",
             "pages": len(entries),
+            # Read runs no span join, but the front matter's ``line_join`` field is read as a
+            # health signal across the whole corpus, and a Read page that silently carried no
+            # such field would be invisible in exactly the sweep §11.2 exists to support.
+            # Here it means what it can mean: lines that ended up placeable over lines offered.
+            # A list, not a tuple, so a stored view round-trips through JSON unchanged.
+            "_line_join": [sum(1 for block in blocks if block.lines), len(blocks)],
             # Said in the payload itself, not only in a docstring: an auditor reading a stored
             # LayoutView must be able to see why this document had no title zone.
             "zones": "body only — Read v3.2 predicts no paragraph roles",
@@ -722,10 +980,28 @@ def _from_des_normalized(page: dict[str, Any]) -> LayoutView:
     )
 
 
+def _line_join_of(view: LayoutView) -> tuple[int, int] | None:
+    """A view's ``(attached, total)`` line-join counts, or ``None`` when it ran no join."""
+    value = view.raw.get("_line_join")
+    if not isinstance(value, list) or len(value) < 2:
+        return None
+    return _as_int(value[0]), _as_int(value[1])
+
+
 def _merge(views: list[LayoutView]) -> LayoutView:
-    """Concatenate per-page views into one document view, de-duplicating languages."""
+    """Concatenate per-page views into one document view, de-duplicating languages.
+
+    The per-page ``_line_join`` counts are SUMMED, not dropped. DES pages go through the same
+    span join ``from_azure_layout`` runs, so §11.2's silent failure is reachable on this path
+    too, and a document-level ``line_join`` is the only evidence of it a reader ever gets.
+    Pages that ran no join (a normalized DES row, which has no line stream) contribute nothing,
+    and when NO page ran one the key is absent rather than a misleading ``0/0``.
+    """
     merged = LayoutView(raw={"provider": PROVIDER_DES_OCR, "pages": len(views)})
     languages: dict[str, None] = {}
+    attached = 0
+    total = 0
+    joined = False
     for view in views:
         merged.pages.extend(view.pages)
         merged.blocks.extend(view.blocks)
@@ -734,9 +1010,31 @@ def _merge(views: list[LayoutView]) -> LayoutView:
         merged.key_values.extend(view.key_values)
         for locale in view.languages:
             languages.setdefault(locale, None)
+        counts = _line_join_of(view)
+        if counts is not None:
+            joined = True
+            attached += counts[0]
+            total += counts[1]
     merged.pages.sort(key=lambda p: p.page)
     merged.languages = list(languages)
+    if joined:
+        merged.raw["_line_join"] = [attached, total]
     return merged
+
+
+def _des_raw(view: LayoutView, number: int) -> dict[str, Any]:
+    """DES provenance for a page mapped through :func:`from_azure_layout`.
+
+    Replaces the Azure provenance (the caller asked DES, not Azure) but KEEPS ``_line_join``:
+    the span join genuinely ran on this page, so §11.2's silent failure is reachable here, and
+    dropping the counts would leave the DES path — the one that actually runs the join in
+    production — with no diagnostic at all.
+    """
+    raw: dict[str, Any] = {"provider": PROVIDER_DES_OCR, "page": number}
+    counts = _line_join_of(view)
+    if counts is not None:
+        raw["_line_join"] = [counts[0], counts[1]]
+    return raw
 
 
 def from_des_ocr(payload: dict[str, Any]) -> LayoutView:
@@ -770,10 +1068,10 @@ def from_des_ocr(payload: dict[str, Any]) -> LayoutView:
                     "languages": raw.get("languages"),
                 }
             )
-            view.raw = {"provider": PROVIDER_DES_OCR, "page": number}
+            view.raw = _des_raw(view, number)
         elif _looks_azure(meta):
             view = from_azure_layout({"pages": [meta]})
-            view.raw = {"provider": PROVIDER_DES_OCR, "page": number}
+            view.raw = _des_raw(view, number)
         else:
             view = _from_des_normalized(meta)
         views.append(_renumber(view, number))

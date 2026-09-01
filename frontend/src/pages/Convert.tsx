@@ -189,6 +189,7 @@ export default function Convert() {
           <ResultViewer
             markdown={result.markdown}
             title={result.doc_id ? `result — ${result.doc_id}` : 'result'}
+            conversionId={result.id}
             meta={{
               pages: result.pages,
               blocks: result.blocks,
@@ -197,6 +198,9 @@ export default function Convert() {
               source: result.source,
               provider: result.provider,
               ms: result.ms,
+              treeStatus: result.tree_status,
+              treeNodes: result.tree_nodes,
+              sha256Tree: result.sha256_tree,
             }}
           />
         )}

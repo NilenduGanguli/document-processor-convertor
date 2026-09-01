@@ -1,0 +1,17 @@
+{
+  "fixture": "two_column",
+  "note": "Hand-labelled reading order for test_doctree_build.two_column_view: the title, then the LEFT column top-to-bottom (account holder block), then the RIGHT column top-to-bottom (statement period block). A y-sort would interleave the columns row by row, which is exactly the misreading the tree exists to prevent.",
+  "order": [
+    "//doc/body[1]/sect[1]/h[1]",
+    "//doc/body[1]/sect[1]/fg[1]/frame[1]/p[1]",
+    "//doc/body[1]/sect[1]/fg[1]/frame[1]/p[2]",
+    "//doc/body[1]/sect[1]/fg[1]/frame[1]/p[3]",
+    "//doc/body[1]/sect[1]/fg[1]/frame[1]/p[4]",
+    "//doc/body[1]/sect[1]/fg[1]/frame[1]/p[5]",
+    "//doc/body[1]/sect[1]/fg[1]/frame[2]/p[1]",
+    "//doc/body[1]/sect[1]/fg[1]/frame[2]/p[2]",
+    "//doc/body[1]/sect[1]/fg[1]/frame[2]/p[3]",
+    "//doc/body[1]/sect[1]/fg[1]/frame[2]/p[4]",
+    "//doc/body[1]/sect[1]/fg[1]/frame[2]/p[5]"
+  ]
+}

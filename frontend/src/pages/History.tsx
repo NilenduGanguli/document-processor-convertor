@@ -71,6 +71,9 @@ export default function History() {
       source: row.source,
       provider: row.provider,
       ms: row.ms,
+      treeStatus: row.tree_status,
+      treeNodes: row.tree_nodes,
+      sha256Tree: row.sha256_tree,
     });
     try {
       // The markdown is the point; the detail row is only richer chips. Fetch both, and
@@ -88,6 +91,9 @@ export default function History() {
           source: d.source,
           provider: d.provider,
           ms: d.ms,
+          treeStatus: d.tree_status,
+          treeNodes: d.tree_nodes,
+          sha256Tree: d.sha256_tree,
         });
       }
     } catch (e) {
@@ -191,7 +197,12 @@ export default function History() {
           )}
           {docError != null && <ErrorNotice error={docError} />}
           {markdown != null && (
-            <ResultViewer markdown={markdown} meta={meta} title={`stored PMD — ${selected}`} />
+            <ResultViewer
+              markdown={markdown}
+              meta={meta}
+              title={`stored PMD — ${selected}`}
+              conversionId={selected ?? undefined}
+            />
           )}
         </div>
       </div>

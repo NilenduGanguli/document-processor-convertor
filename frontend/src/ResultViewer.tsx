@@ -12,6 +12,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import { Chip, EmptyState, Panel } from './components';
+import TreeView from './TreeView';
 
 export interface ViewerMeta {
   pages?: number | null;
@@ -21,6 +22,10 @@ export interface ViewerMeta {
   source?: string;
   provider?: string;
   ms?: number | null;
+  /** Doctree meta — surfaced when the conversions API returns it (SPEC-DOCTREE-1 §6.1). */
+  treeStatus?: string | null;
+  treeNodes?: number | null;
+  sha256Tree?: string | null;
 }
 
 interface Anchor {
@@ -51,21 +56,29 @@ function stripFrontMatter(markdown: string): string {
   return end < 0 ? markdown : markdown.slice(end + 5);
 }
 
-const TABS = ['Rendered', 'Raw PMD', 'Anchors'] as const;
+const TABS = ['Rendered', 'Raw PMD', 'Anchors', 'Tree'] as const;
 type Tab = (typeof TABS)[number];
 
 export default function ResultViewer({
   markdown,
   meta,
   title = 'result',
+  conversionId,
 }: {
   markdown: string;
   meta?: ViewerMeta;
   title?: string;
+  /**
+   * The stored conversion's id — enables the Tree tab, which fetches the doctree artifact
+   * from GET /api/v1/conversions/{id}/tree on first open. Without an id (nothing stored to
+   * address) the tab is simply not offered.
+   */
+  conversionId?: string;
 }) {
   const [tab, setTab] = useState<Tab>('Rendered');
   const anchors = useMemo(() => parseAnchors(markdown), [markdown]);
   const rendered = useMemo(() => stripFrontMatter(markdown), [markdown]);
+  const tabs = conversionId ? TABS : TABS.filter((t) => t !== 'Tree');
 
   const chips = meta && (
     <div className="row" style={{ padding: 'var(--s-3) var(--s-4)' }}>
@@ -76,6 +89,11 @@ export default function ResultViewer({
       {meta.source && <Chip k="source" v={meta.source} />}
       {meta.provider && <Chip k="provider" v={meta.provider} />}
       {meta.ms != null && <Chip k="took" v={`${meta.ms} ms`} />}
+      {meta.treeStatus != null && <Chip k="tree" v={meta.treeStatus} />}
+      {meta.treeNodes != null && <Chip k="tree nodes" v={meta.treeNodes} />}
+      {meta.sha256Tree != null && (
+        <Chip k="sha256 tree" v={meta.sha256Tree.slice(0, 12)} title={meta.sha256Tree} />
+      )}
     </div>
   );
 
@@ -83,7 +101,7 @@ export default function ResultViewer({
     <Panel title={title} flush actions={<span className="faint mono">{anchors.length} anchors</span>}>
       {chips}
       <div className="tabs" role="tablist">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t}
             role="tab"
@@ -138,6 +156,8 @@ export default function ResultViewer({
             </table>
           </div>
         ))}
+
+      {tab === 'Tree' && conversionId != null && <TreeView conversionId={conversionId} />}
     </Panel>
   );
 }

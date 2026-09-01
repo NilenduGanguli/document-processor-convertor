@@ -30,6 +30,24 @@ class Zone(enum.StrEnum):
     furniture = "furniture"
 
 
+class TextLine(BaseModel):
+    """One provider LINE inside a block — the PLACEMENT unit for spatial rendering.
+
+    Deliberately distinct from :class:`TextBlock`. Azure's definition of a line is the
+    column-preserving unit: content in the same horizontal plane but separated by more than a
+    single visual space is split into separate lines. A line's rectangle is therefore a real
+    2-D box that can be placed on a grid.
+
+    A PARAGRAPH's rectangle is the union hull of its lines. For wrapped text that hull spans
+    many visual rows, so it states the column correctly and the row not at all. Paragraphs are
+    the right unit for roles and the wrong unit for position — which is why the spatial
+    emitter places lines and takes roles from the parent block.
+    """
+
+    text: str
+    bbox: Quad | None = None
+
+
 class TextBlock(BaseModel):
     """One paragraph/line of text with its zone and geometry."""
 
@@ -38,6 +56,11 @@ class TextBlock(BaseModel):
     page: int = 1
     bbox: Quad | None = None
     role: str | None = None      # verbatim provider role, when it had one
+    #: Provider lines, in provider order, joined to this block by span overlap. EMPTY is the
+    #: honest state for any reader with no line stream (Office/HTML, plain text, DES) — never
+    #: synthesised by splitting ``text`` on newlines, because a synthetic line has no
+    #: rectangle and an invented rectangle is worse than none.
+    lines: list[TextLine] = Field(default_factory=list)
     #: Provider document-order index across ALL element kinds on the document. Orthogonal to
     #: geometry on purpose: a reader with no coordinates (HTML, XLSX) can still state the
     #: order things appeared in, without inventing rectangles — ordering is a claim about
@@ -132,5 +155,6 @@ __all__ = [
     "Quad",
     "Table",
     "TextBlock",
+    "TextLine",
     "Zone",
 ]

@@ -1,0 +1,13 @@
+{
+  "fixture": "provider",
+  "note": "Hand-labelled reading order for test_doctree_build.provider_view: title, then the Introduction section (heading, paragraph), then the Methods section (heading, paragraph, figure, caption). Furniture (header, page number) is deliberately absent: it is demoted out of the reading flow.",
+  "order": [
+    "//doc/body[1]/h[1]",
+    "//doc/body[1]/sect[1]/h[1]",
+    "//doc/body[1]/sect[1]/p[1]",
+    "//doc/body[1]/sect[2]/h[1]",
+    "//doc/body[1]/sect[2]/p[1]",
+    "//doc/body[1]/sect[2]/fig[1]",
+    "//doc/body[1]/sect[2]/fig[1]/cap[1]"
+  ]
+}

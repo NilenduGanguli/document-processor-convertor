@@ -1,0 +1,125 @@
+{
+  "schema": "dpc-arrange-ops/1",
+  "ops": [
+    {
+      "op": "move_after",
+      "node": "n0",
+      "ref": "n1",
+      "reason": "OTHER_STRUCTURAL"
+    },
+    {
+      "op": "move_after",
+      "node": "n1",
+      "ref": "n2",
+      "reason": "OTHER_STRUCTURAL"
+    },
+    {
+      "op": "move_after",
+      "node": "n2",
+      "ref": "n3",
+      "reason": "OTHER_STRUCTURAL"
+    },
+    {
+      "op": "move_after",
+      "node": "n3",
+      "ref": "n4",
+      "reason": "OTHER_STRUCTURAL"
+    },
+    {
+      "op": "move_after",
+      "node": "n4",
+      "ref": "n5",
+      "reason": "OTHER_STRUCTURAL"
+    },
+    {
+      "op": "move_after",
+      "node": "n5",
+      "ref": "n6",
+      "reason": "OTHER_STRUCTURAL"
+    },
+    {
+      "op": "move_after",
+      "node": "n6",
+      "ref": "n7",
+      "reason": "OTHER_STRUCTURAL"
+    },
+    {
+      "op": "move_after",
+      "node": "n7",
+      "ref": "n8",
+      "reason": "OTHER_STRUCTURAL"
+    },
+    {
+      "op": "move_after",
+      "node": "n8",
+      "ref": "n9",
+      "reason": "OTHER_STRUCTURAL"
+    },
+    {
+      "op": "move_after",
+      "node": "n9",
+      "ref": "n10",
+      "reason": "OTHER_STRUCTURAL"
+    },
+    {
+      "op": "move_after",
+      "node": "n10",
+      "ref": "n11",
+      "reason": "OTHER_STRUCTURAL"
+    },
+    {
+      "op": "move_after",
+      "node": "n11",
+      "ref": "n12",
+      "reason": "OTHER_STRUCTURAL"
+    },
+    {
+      "op": "move_after",
+      "node": "n12",
+      "ref": "n13",
+      "reason": "OTHER_STRUCTURAL"
+    },
+    {
+      "op": "move_before",
+      "node": "n0",
+      "ref": "n1",
+      "reason": "ORDER_INVERSION"
+    },
+    {
+      "op": "move_before",
+      "node": "n1",
+      "ref": "n2",
+      "reason": "ORDER_INVERSION"
+    },
+    {
+      "op": "move_before",
+      "node": "n2",
+      "ref": "n3",
+      "reason": "ORDER_INVERSION"
+    },
+    {
+      "op": "move_before",
+      "node": "n3",
+      "ref": "n4",
+      "reason": "ORDER_INVERSION"
+    },
+    {
+      "op": "move_before",
+      "node": "n4",
+      "ref": "n5",
+      "reason": "ORDER_INVERSION"
+    },
+    {
+      "op": "move_before",
+      "node": "n5",
+      "ref": "n6",
+      "reason": "ORDER_INVERSION"
+    },
+    {
+      "op": "move_before",
+      "node": "n6",
+      "ref": "n7",
+      "reason": "ORDER_INVERSION"
+    }
+  ]
+}
