@@ -227,3 +227,23 @@ tag, no reference to any other part of the file. Therefore position metadata sur
 arbitrary chunking, the front matter being the only part that is lost when a chunk excludes
 it. This property is the reason anchors are inline (§1.2) and MUST be preserved by any
 future revision of the format.
+
+---
+
+## Superseded in part by PMD 2.0
+
+`docs/SPEC-PMD-2.md` extends this format with **canvas segments** — space-padded monospace
+blocks that preserve where text sat on the page — and corrects the anchor scale on inch-unit
+pages. This document remains the specification for **linear regions**, which is what every
+non-columnar page still is, byte for byte.
+
+Two changes a 1.0 consumer must know about:
+
+| Change | Effect on a 1.0 consumer |
+|---|---|
+| `<!-- page N … scale=1000 -->` on inch-unit pages, with anchors in milli-inches | Anchors on Azure-read PDFs changed, because they were **wrong**: rounding inch coordinates to integers put a whole page on an 8x11 grid, so distinct rows shared a rectangle and titles had zero height. Read the `scale=` clause and divide. `rect_scale="legacy"` reproduces the old numbers. |
+| ` ```text ` canvas blocks with a `canvas …` anchor | Only on pages that produced one. §5.2 already required unknown anchor tags to be treated as opaque, so a 1.0 parser reads the anchor as ordinary and the fence as an ordinary code block. |
+
+A file that used no 2.0 feature still declares `pmd: 1.0` and is byte-identical to what this
+specification produced. That is structural — a page with no canvas is rendered by the
+unmodified linear path — not a property maintained by testing.
