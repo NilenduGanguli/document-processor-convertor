@@ -1,43 +1,94 @@
 /**
- * Convert — the working page. Two ways in, one viewer out:
- *   File        drag/drop or pick a PDF/image, sent as base64;
- *   Paste JSON  an Azure Read / Azure analyze / DES OCR payload someone already has.
- * Both call POST /api/v1/convert with echo=true so the markdown comes straight back.
+ * Convert — the working page. Upload-first:
+ *   Upload         drag/drop or pick a file, streamed as multipart to POST /api/v1/process
+ *                  (the primary path — a person holds a file, not base64);
+ *   Provider JSON  an Azure Read / Azure analyze / DES OCR payload someone already has,
+ *                  posted to /api/v1/convert (the advanced paste modes).
+ * /process never echoes the markdown, so the page fetches it back by id once the row
+ * exists — which also means what you see is what was STORED, same as History.
  */
-import { useCallback, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
 
 import {
+  ACCEPT,
   JSON_KINDS,
-  convertFile,
   convertJson,
-  fileToBase64,
+  getMarkdown,
+  processFile,
   type ConvertResponse,
   type JsonKind,
 } from '../api';
 import { Badge, ErrorNotice, PageHead, Panel, Spinner } from '../components';
-import ResultViewer from '../ResultViewer';
+import ResultViewer, { type ViewerMeta } from '../ResultViewer';
 
 type Mode = 'file' | 'json';
+
+function metaOf(r: ConvertResponse): ViewerMeta {
+  return {
+    pages: r.pages,
+    blocks: r.blocks,
+    tables: r.tables,
+    marks: r.marks,
+    keyValues: r.key_values,
+    chars: r.chars,
+    source: r.source,
+    provider: r.provider,
+    ms: r.ms,
+    sha256Markdown: r.sha256_markdown,
+    treeStatus: r.tree_status,
+    treeSource: r.tree_source,
+    treeNodes: r.tree_nodes,
+    sha256Tree: r.sha256_tree,
+    sha256TreeMarkdown: r.sha256_tree_markdown,
+    passes: r.passes,
+  };
+}
+
+/** "converting…  1m 24s" — long OCR round trips need visible proof of life. */
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  const s = Math.max(0, Math.floor((now - since) / 1000));
+  const text = s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+  return <span className="faint tabular">{text}</span>;
+}
 
 export default function Convert() {
   const [mode, setMode] = useState<Mode>('file');
   const [docId, setDocId] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<{ label: string; since: number } | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const [result, setResult] = useState<ConvertResponse | null>(null);
+  const [result, setResult] = useState<{
+    id: string;
+    markdown: string;
+    meta: ViewerMeta;
+    docId: string;
+  } | null>(null);
 
-  const run = useCallback(async (work: Promise<ConvertResponse>) => {
-    setBusy(true);
-    setError(null);
-    try {
-      setResult(await work);
-    } catch (e) {
-      setResult(null);
-      setError(e);
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  const run = useCallback(
+    async (label: string, work: () => Promise<{ response: ConvertResponse; markdown: string }>) => {
+      setBusy({ label, since: Date.now() });
+      setError(null);
+      try {
+        const { response, markdown } = await work();
+        setResult({
+          id: response.id,
+          markdown,
+          meta: metaOf(response),
+          docId: response.doc_id,
+        });
+      } catch (e) {
+        setResult(null);
+        setError(e);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [],
+  );
 
   /* ------------------------------------------------------------- file mode */
 
@@ -45,10 +96,23 @@ export default function Convert() {
   const fileInput = useRef<HTMLInputElement>(null);
 
   const takeFile = useCallback(
-    async (file: File | undefined | null) => {
+    (file: File | undefined | null) => {
       if (!file || busy) return;
-      const base64 = await fileToBase64(file);
-      await run(convertFile({ name: file.name, base64 }, docId.trim()));
+      void run(`converting ${file.name}`, async () => {
+        const response = await processFile(file, docId.trim());
+        // /process stores but never echoes — pull the stored bytes back by id. A conversion
+        // that took minutes of OCR must never be thrown away because this READBACK blipped:
+        // the row exists, so render the id and meta with a note instead of only an error.
+        let markdown = '';
+        try {
+          markdown = await getMarkdown(response.id);
+        } catch {
+          markdown =
+            `<!-- conversion ${response.id} stored; fetching its markdown failed — ` +
+            'retry from History -->';
+        }
+        return { response, markdown };
+      });
     },
     [busy, docId, run],
   );
@@ -56,7 +120,7 @@ export default function Convert() {
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setOver(false);
-    void takeFile(e.dataTransfer.files?.[0]);
+    takeFile(e.dataTransfer.files?.[0]);
   };
 
   /* ------------------------------------------------------------- json mode */
@@ -72,7 +136,10 @@ export default function Convert() {
       setError(new Error('that is not valid JSON — fix it and try again'));
       return;
     }
-    void run(convertJson(kind, payload, docId.trim()));
+    void run('converting payload', async () => {
+      const response = await convertJson(kind, payload, docId.trim());
+      return { response, markdown: response.markdown ?? (await getMarkdown(response.id)) };
+    });
   };
 
   /* ------------------------------------------------------------------- ui */
@@ -92,13 +159,13 @@ export default function Convert() {
                 className={`btn btn-sm ${mode === 'file' ? 'btn-primary' : 'btn-ghost'}`}
                 onClick={() => setMode('file')}
               >
-                File
+                Upload
               </button>
               <button
                 className={`btn btn-sm ${mode === 'json' ? 'btn-primary' : 'btn-ghost'}`}
                 onClick={() => setMode('json')}
               >
-                Paste JSON
+                Provider JSON
               </button>
             </span>
           }
@@ -118,11 +185,12 @@ export default function Convert() {
             {mode === 'file' ? (
               <>
                 <div
-                  className={`dropzone ${over ? 'over' : ''}`}
+                  className={`dropzone ${over ? 'over' : ''} ${busy ? 'busy' : ''}`}
                   role="button"
                   tabIndex={0}
-                  onClick={() => fileInput.current?.click()}
-                  onKeyDown={(e) => e.key === 'Enter' && fileInput.current?.click()}
+                  aria-disabled={busy != null}
+                  onClick={() => !busy && fileInput.current?.click()}
+                  onKeyDown={(e) => e.key === 'Enter' && !busy && fileInput.current?.click()}
                   onDragOver={(e) => {
                     e.preventDefault();
                     setOver(true);
@@ -131,19 +199,23 @@ export default function Convert() {
                   onDrop={onDrop}
                 >
                   <span className="big">drop a document here</span>
-                  <span>PDF or image — or click to pick a file</span>
+                  <span>or click to pick a file</span>
                   <span className="faint">
-                    a PDF with a text layer is read locally; scans go to OCR if this deployment
-                    has one
+                    PDF · image (PNG/JPEG/TIFF/BMP/HEIC) · XLSX · DOCX · PPTX · HTML · TXT ·
+                    CSV · MD · LOG · EML
+                  </span>
+                  <span className="faint">
+                    every PDF and image is read by Document Intelligence — that round
+                    trip can take minutes on large scans; leave this tab open
                   </span>
                 </div>
                 <input
                   ref={fileInput}
                   type="file"
-                  accept=".pdf,image/*,application/pdf"
+                  accept={ACCEPT}
                   style={{ display: 'none' }}
                   onChange={(e) => {
-                    void takeFile(e.target.files?.[0]);
+                    takeFile(e.target.files?.[0]);
                     e.target.value = '';
                   }}
                 />
@@ -171,7 +243,7 @@ export default function Convert() {
                 <div className="row">
                   <button
                     className="btn btn-primary"
-                    disabled={busy || !jsonText.trim()}
+                    disabled={busy != null || !jsonText.trim()}
                     onClick={submitJson}
                   >
                     convert
@@ -180,28 +252,25 @@ export default function Convert() {
               </>
             )}
 
-            {busy && <Spinner label="converting…" />}
+            {busy && (
+              <div className="row" role="status">
+                <Spinner label={`${busy.label}…`} />
+                <Elapsed since={busy.since} />
+                <span className="faint">
+                  OCR round trips can take minutes — leave this tab open
+                </span>
+              </div>
+            )}
             {error != null && <ErrorNotice error={error} />}
           </div>
         </Panel>
 
-        {result?.markdown != null && (
+        {result != null && (
           <ResultViewer
             markdown={result.markdown}
-            title={result.doc_id ? `result — ${result.doc_id}` : 'result'}
+            title={result.docId ? `result — ${result.docId}` : 'result'}
             conversionId={result.id}
-            meta={{
-              pages: result.pages,
-              blocks: result.blocks,
-              tables: result.tables,
-              chars: result.chars,
-              source: result.source,
-              provider: result.provider,
-              ms: result.ms,
-              treeStatus: result.tree_status,
-              treeNodes: result.tree_nodes,
-              sha256Tree: result.sha256_tree,
-            }}
+            meta={result.meta}
           />
         )}
       </div>

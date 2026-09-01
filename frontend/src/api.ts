@@ -39,7 +39,7 @@ export interface ConvertResponse {
   s3_bucket: string;
   s3_key: string;
   ms: number;
-  /** Present only when the request set echo=true. */
+  /** Present only when the request set echo=true (/process never echoes). */
   markdown?: string;
   /* Doctree fields (SPEC-DOCTREE-1 §6.1) — absent on older deployments or tree_mode=off,
      so every one of them is optional and the console renders fine without them. */
@@ -61,16 +61,81 @@ export interface ConversionRow {
   pages: number | null;
   blocks?: number | null;
   tables_n?: number | null;
+  marks?: number | null;
+  key_values?: number | null;
   chars: number | null;
   status: string;
   error?: string | null;
   ms?: number | null;
   created_at: string;
+  sha256_input?: string | null;
+  sha256_markdown?: string | null;
   /* Doctree columns (nullable in the DB; absent from older API builds). */
   tree_status?: string | null;
   tree_source?: string | null;
   tree_nodes?: number | null;
   sha256_tree?: string | null;
+  sha256_tree_markdown?: string | null;
+  /** The detail endpoint deserialises the stored canonical JSON back to a dict. */
+  passes?: Record<string, string> | string | null;
+}
+
+/* --------------------------------------------------------- arrangement types */
+/*
+ * Shape of the stored arrangement.json (dpc/arrange/artifact.py). Three statuses:
+ * "ran" (windows + verdicts + accepted ops), "skipped" (a closed reason), "error:<Name>".
+ * Everything beyond schema/status is optional — the viewer degrades, never crashes.
+ */
+
+export interface ArrangeOpRecord {
+  op: string;
+  node: string;
+  ref?: string;
+  reason: string;
+  confidence_pm?: number;
+}
+
+export interface ArrangeVerdict {
+  op: ArrangeOpRecord;
+  votes?: number;
+  verdict: string; // ACCEPTED | ADVISORY | REJECT_<RULE>
+  rule?: string | null;
+}
+
+export interface ArrangeWindow {
+  window_ix: number;
+  page?: number | null;
+  node_span?: number[];
+  payload_sha256?: string;
+  image_sha256?: string;
+  skipped?: string;
+  verdicts?: ArrangeVerdict[];
+}
+
+export interface Arrangement {
+  schema?: string;
+  doc_id?: string;
+  pmd_sha256?: string;
+  sha256_tree?: string;
+  status: string;
+  reason?: string;
+  model_id?: string;
+  payload_mode?: string;
+  prompt_template_version?: string;
+  verifier_version?: string;
+  samples?: number;
+  windows?: ArrangeWindow[];
+  accepted_ops?: Array<{ op: string; node: string; ref?: string; reason?: string }>;
+  review_queue?: Array<{ after?: string; confidence_pm?: number; reason?: string }>;
+}
+
+/** Minimal structural check before rendering the arrangement artifact. */
+export function isArrangement(body: unknown): body is Arrangement {
+  return (
+    !!body &&
+    typeof body === 'object' &&
+    typeof (body as Record<string, unknown>).status === 'string'
+  );
 }
 
 /* ------------------------------------------------------- doctree types */
@@ -167,32 +232,41 @@ export class ApiError extends Error {
   status: number;
   detail: unknown;
   needsOcr: boolean;
+  /** The service's structured refusal name (unsupported_media_type, needs_ocr, …). */
+  code: string | null;
 
-  constructor(status: number, message: string, detail: unknown, needsOcr: boolean) {
+  constructor(
+    status: number,
+    message: string,
+    detail: unknown,
+    needsOcr: boolean,
+    code: string | null = null,
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.detail = detail;
     this.needsOcr = needsOcr;
+    this.code = code;
   }
 }
 
-function messageFrom(status: number, body: unknown): [string, unknown, boolean] {
+function messageFrom(status: number, body: unknown): [string, unknown, boolean, string | null] {
   if (body && typeof body === 'object') {
     const b = body as Record<string, unknown>;
-    const needsOcr = status === 422 && b.error === 'needs_ocr';
+    const code = typeof b.error === 'string' ? b.error : null;
+    const needsOcr = status === 422 && code === 'needs_ocr';
     const detail = b.detail ?? b.error ?? b.message;
-    if (typeof detail === 'string' && detail) return [detail, b.detail ?? b, needsOcr];
-    if (detail !== undefined) return [`request failed (HTTP ${status})`, detail, needsOcr];
+    if (typeof detail === 'string' && detail) return [detail, b.detail ?? b, needsOcr, code];
+    if (detail !== undefined) {
+      return [`request failed (HTTP ${status})`, detail, needsOcr, code];
+    }
   }
-  return [`request failed (HTTP ${status})`, body, false];
+  return [`request failed (HTTP ${status})`, body, false, null];
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
-  });
+/** Parse a response, throwing a structured ApiError on any non-2xx. */
+async function settle<T>(res: Response): Promise<T> {
   const text = await res.text();
   let body: unknown = null;
   try {
@@ -201,27 +275,51 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     body = text;
   }
   if (!res.ok) {
-    const [msg, detail, needsOcr] = messageFrom(res.status, body);
-    throw new ApiError(res.status, msg, detail, needsOcr);
+    const [msg, detail, needsOcr, code] = messageFrom(res.status, body);
+    throw new ApiError(res.status, msg, detail, needsOcr, code);
   }
   return body as T;
 }
 
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+  });
+  return settle<T>(res);
+}
+
+/** Fetch a plain-text artifact; errors still arrive as structured ApiError. */
+async function requestText(path: string): Promise<string> {
+  const res = await fetch(path);
+  const text = await res.text();
+  if (!res.ok) {
+    let body: unknown = text;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      /* plain-text error */
+    }
+    const [msg, detail, needsOcr, code] = messageFrom(res.status, body);
+    throw new ApiError(res.status, msg, detail, needsOcr, code);
+  }
+  return text;
+}
+
 /* ----------------------------------------------------------------- calls */
 
-export function convertFile(
-  file: { name: string; base64: string },
-  docId: string,
-): Promise<ConvertResponse> {
-  return request<ConvertResponse>(`${API}/convert`, {
-    method: 'POST',
-    body: JSON.stringify({
-      ...(docId ? { doc_id: docId } : {}),
-      filename: file.name,
-      content_base64: file.base64,
-      echo: true,
-    }),
-  });
+/**
+ * Upload one file to POST /api/v1/process — the console's primary path. Multipart, so the
+ * browser streams the bytes; no base64 detour. The response never echoes markdown — fetch
+ * it back with getMarkdown(id) once the row exists.
+ */
+export async function processFile(file: File, docId: string): Promise<ConvertResponse> {
+  const form = new FormData();
+  form.append('file', file, file.name);
+  if (docId) form.append('doc_id', docId);
+  // No Content-Type header: the browser must set the multipart boundary itself.
+  const res = await fetch(`${API}/process`, { method: 'POST', body: form });
+  return settle<ConvertResponse>(res);
 }
 
 export function convertJson(
@@ -257,20 +355,26 @@ export function getConversion(id: string): Promise<ConversionRow> {
   return request<ConversionRow>(`${API}/conversions/${id}`);
 }
 
-export async function getMarkdown(id: string): Promise<string> {
-  const res = await fetch(`${API}/conversions/${id}/markdown`);
-  const text = await res.text();
-  if (!res.ok) {
-    let body: unknown = text;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      /* plain-text error */
-    }
-    const [msg, detail, needsOcr] = messageFrom(res.status, body);
-    throw new ApiError(res.status, msg, detail, needsOcr);
-  }
-  return text;
+export function getMarkdown(id: string): Promise<string> {
+  return requestText(`${API}/conversions/${id}/markdown`);
+}
+
+/** PMD 3.0 — the tree-flattened markdown. 404 = not stored (a normal state). */
+export function getTreeMarkdown(id: string): Promise<string> {
+  return requestText(`${API}/conversions/${id}/tree.md`);
+}
+
+/** The stored doctree.json as its exact bytes — for the download button (sha-stable). */
+export function getTreeRaw(id: string): Promise<string> {
+  return requestText(`${API}/conversions/${id}/tree`);
+}
+
+/**
+ * The newest stored arrangement.json. 404 `{"error":"no_arrangement"}` is a normal state
+ * (arrange off, shadow pass not run, or an older conversion) — the caller renders it calm.
+ */
+export function getArrangement(id: string): Promise<Arrangement> {
+  return request<Arrangement>(`${API}/conversions/${id}/arrangement`);
 }
 
 /**
@@ -298,16 +402,21 @@ export function health(): Promise<HealthResponse> {
 
 /* ---------------------------------------------------------------- files */
 
-/** Read a File as raw base64 (no data: prefix) — what content_base64 wants. */
-export function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error('could not read file'));
-    reader.onload = () => {
-      const url = String(reader.result ?? '');
-      const comma = url.indexOf(',');
-      resolve(comma >= 0 ? url.slice(comma + 1) : url);
-    };
-    reader.readAsDataURL(file);
-  });
+/**
+ * Everything dpc/pdfread.py's routing table (_EXTENSION_TYPES) actually accepts. .gif,
+ * .webp and .msg are "other" — routed to a 415 refusal — so they are not offered here.
+ */
+export const ACCEPT =
+  '.pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.heic,.heif,.xlsx,.docx,.pptx,' +
+  '.html,.htm,.txt,.csv,.md,.log,.eml,application/pdf';
+
+/** Hand `text` to the browser as a named download. */
+export function downloadText(name: string, text: string, type = 'text/plain'): void {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
 }

@@ -17,6 +17,37 @@ function statusTone(status: string): BadgeTone {
   return 'neutral';
 }
 
+function treeTone(treeStatus: string): BadgeTone {
+  if (treeStatus === 'built') return 'ok';
+  if (treeStatus.startsWith('error') || treeStatus.startsWith('invalid')) return 'warn';
+  return 'neutral';
+}
+
+/** One shape for the viewer's Meta tab, from either the list row or the detail row. */
+function metaOf(row: ConversionRow): ViewerMeta {
+  return {
+    pages: row.pages,
+    blocks: row.blocks,
+    tables: row.tables_n,
+    marks: row.marks,
+    keyValues: row.key_values,
+    chars: row.chars,
+    source: row.source,
+    provider: row.provider,
+    filename: row.filename,
+    createdAt: row.created_at ? when(row.created_at) : null,
+    ms: row.ms,
+    sha256Markdown: row.sha256_markdown,
+    sha256Input: row.sha256_input,
+    treeStatus: row.tree_status,
+    treeSource: row.tree_source,
+    treeNodes: row.tree_nodes,
+    sha256Tree: row.sha256_tree,
+    sha256TreeMarkdown: row.sha256_tree_markdown,
+    passes: row.passes,
+  };
+}
+
 function when(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('en-GB');
@@ -63,39 +94,14 @@ export default function History() {
     setMarkdown(null);
     setDocError(null);
     setLoadingDoc(true);
-    setMeta({
-      pages: row.pages,
-      blocks: row.blocks,
-      tables: row.tables_n,
-      chars: row.chars,
-      source: row.source,
-      provider: row.provider,
-      ms: row.ms,
-      treeStatus: row.tree_status,
-      treeNodes: row.tree_nodes,
-      sha256Tree: row.sha256_tree,
-    });
+    setMeta(metaOf(row));
     try {
       // The markdown is the point; the detail row is only richer chips. Fetch both, and
       // survive the detail call failing — the bytes still render.
       const [md, detail] = await Promise.allSettled([getMarkdown(row.id), getConversion(row.id)]);
       if (md.status === 'rejected') throw md.reason;
       setMarkdown(md.value);
-      if (detail.status === 'fulfilled') {
-        const d = detail.value;
-        setMeta({
-          pages: d.pages,
-          blocks: d.blocks,
-          tables: d.tables_n,
-          chars: d.chars,
-          source: d.source,
-          provider: d.provider,
-          ms: d.ms,
-          treeStatus: d.tree_status,
-          treeNodes: d.tree_nodes,
-          sha256Tree: d.sha256_tree,
-        });
-      }
+      if (detail.status === 'fulfilled') setMeta(metaOf(detail.value));
     } catch (e) {
       setDocError(e);
     } finally {
@@ -160,6 +166,7 @@ export default function History() {
                     <th>provider</th>
                     <th>pages</th>
                     <th>chars</th>
+                    <th>tree</th>
                     <th>status</th>
                   </tr>
                 </thead>
@@ -176,6 +183,18 @@ export default function History() {
                       <td className="mono">{row.provider}</td>
                       <td className="tabular">{row.pages ?? ''}</td>
                       <td className="tabular">{row.chars?.toLocaleString('en-US') ?? ''}</td>
+                      <td>
+                        {row.tree_status ? (
+                          <Badge
+                            tone={treeTone(row.tree_status)}
+                            title={row.tree_source ?? undefined}
+                          >
+                            {row.tree_status}
+                          </Badge>
+                        ) : (
+                          <span className="faint">—</span>
+                        )}
+                      </td>
                       <td>
                         <Badge tone={statusTone(row.status)} title={row.error ?? undefined}>
                           {row.status}

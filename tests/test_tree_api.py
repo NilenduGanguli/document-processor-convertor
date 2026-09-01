@@ -1015,3 +1015,65 @@ def test_n_rejected_counts_the_verifiers_actual_verdict_vocabulary() -> None:
     )
     assert count == 2
     ast.parse(source)  # the source we asserted against is real, parsed code
+
+
+# ---------------------------------------------------------------------------
+# /api/v1/process — the upload-form face of /convert
+# ---------------------------------------------------------------------------
+def _text_file() -> bytes:
+    """Plain text routes locally (DPC_TEXT_ROUTE=plain) — the endpoint's face is what these
+    tests pin; PDF-through-DI routing is already pinned by test_routing.py, and under
+    Azure-only routing a PDF here would only test that this fixture lacks a DI stub."""
+    return b"CLIENT AGREEMENT\nThe parties agree to the schedule of charges.\n"
+
+
+def test_process_uploads_one_file_and_matches_convert(client: TestClient) -> None:
+    """Same bytes through /process and /convert must produce identical artifacts —
+    delegation means the two faces cannot drift."""
+    import base64 as b64
+
+    payload = _text_file()
+    up = client.post(
+        "/api/v1/process",
+        files={"file": ("stmt.txt", payload, "text/plain")},
+        data={"doc_id": "case-42"},
+    )
+    assert up.status_code == 200, up.text
+    body = up.json()
+    assert body["doc_id"] == "case-42"
+
+    via_convert = client.post(
+        "/api/v1/convert",
+        json={"content_base64": b64.b64encode(payload).decode(), "filename": "stmt.txt",
+              "doc_id": "case-42"},
+    ).json()
+    assert body["sha256_markdown"] == via_convert["sha256_markdown"]
+    assert body.get("sha256_tree") == via_convert.get("sha256_tree")
+
+
+def test_process_doc_id_is_optional(client: TestClient) -> None:
+    up = client.post(
+        "/api/v1/process", files={"file": ("stmt.txt", _text_file(), "text/plain")}
+    )
+    assert up.status_code == 200
+    assert up.json()["doc_id"] == ""
+
+
+def test_process_refuses_an_empty_file(client: TestClient) -> None:
+    up = client.post("/api/v1/process", files={"file": ("empty.txt", b"", "text/plain")})
+    assert up.status_code == 400
+    assert "empty" in up.json()["detail"]
+
+
+def test_process_carries_the_same_refusals_as_convert(client: TestClient) -> None:
+    """The 415 family must reach an uploader too — one pipeline, one refusal surface.
+
+    A non-raising client, because the refusal travels as an exception to the JSON handler
+    and this file's default client re-raises server exceptions into the test.
+    """
+    quiet = TestClient(client.app, raise_server_exceptions=False)
+    up = quiet.post(
+        "/api/v1/process", files={"file": ("pic.gif", b"GIF89a" + b"\x00" * 40, "image/gif")}
+    )
+    assert up.status_code == 415
+    assert up.json()["error"] == "unsupported_media_type"

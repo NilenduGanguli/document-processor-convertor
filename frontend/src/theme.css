@@ -478,6 +478,17 @@ table.grid tbody tr.selected {
   white-space: nowrap;
 }
 
+/* A chip that is a button: sha chips copy their full value on click. */
+button.chip-copy {
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color var(--transition);
+}
+button.chip-copy:hover {
+  border-color: var(--c-accent);
+}
+
 /* ---------------------------------------------------------------- tabs */
 
 .tabs {
@@ -534,90 +545,44 @@ table.grid tbody tr.selected {
   font-weight: 600;
   color: var(--fg);
 }
+.dropzone.busy {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+/* Accepted arrange ops — a numbered monospace ledger, order is the content. */
+.accepted-ops {
+  margin: 0;
+  padding-left: var(--s-5);
+  font-size: var(--t-sm);
+}
+.accepted-ops li {
+  margin: 2px 0;
+}
 
 /* ------------------------------------------------------------- viewer */
 
-/* Raw PMD: anchors must stay visible — that is the whole point of the tab. */
-.raw-pmd {
+/* The Markdown tab: the stored PMD bytes exactly as-is. white-space: pre, NEVER pre-wrap —
+   the fenced ```text canvas blocks are positional, and a wrapped canvas row is a lie.
+   Long lines scroll horizontally inside the pane instead. */
+.pmd-source {
   margin: 0;
   padding: var(--s-4);
   max-height: 640px;
   overflow: auto;
   background: var(--bg-sunken);
   border-radius: 0 0 var(--r-lg) var(--r-lg);
+  font-family: var(--font-mono);
   font-size: var(--t-sm);
   line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
+  tab-size: 4;
 }
 
-/* Rendered markdown — calm document type inside the console chrome. */
-.md {
-  padding: var(--s-4) var(--s-5);
-  max-height: 640px;
-  overflow: auto;
-  line-height: 1.6;
-}
-.md > :first-child {
-  margin-top: 0;
-}
-.md h1,
-.md h2,
-.md h3 {
-  margin: var(--s-5) 0 var(--s-3);
-  line-height: var(--lh-tight);
-}
-.md h1 {
-  font-size: var(--t-xl);
-  padding-bottom: var(--s-2);
-  border-bottom: 1px solid var(--border);
-}
-.md h2 {
-  font-size: var(--t-lg);
-}
-.md table {
-  border-collapse: collapse;
-  margin: var(--s-3) 0;
-  font-size: var(--t-sm);
-}
-.md th,
-.md td {
-  border: 1px solid var(--border-strong);
-  padding: var(--s-1) var(--s-3);
-  text-align: left;
-}
-.md th {
-  background: var(--bg-inset);
-  font-weight: 600;
-}
-.md ul,
-.md ol {
-  padding-left: var(--s-5);
-  margin: 0 0 var(--s-3);
-}
-.md li {
-  margin: 2px 0;
-}
-.md input[type='checkbox'] {
-  accent-color: var(--c-accent);
-  margin-right: var(--s-2);
-}
-.md hr {
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: var(--s-4) 0;
-}
-.md pre {
-  background: var(--bg-sunken);
-  border-radius: var(--r-md);
-  padding: var(--s-3);
-  overflow-x: auto;
-}
-.md blockquote {
-  margin: 0 0 var(--s-3);
-  padding-left: var(--s-3);
-  border-left: 3px solid var(--border-strong);
-  color: var(--fg-muted);
+/* Anchor comments are addresses, not prose — visible, but dim. */
+.pmd-anchor {
+  color: var(--fg-faint);
+  opacity: 0.75;
 }
 
 /* --------------------------------------------------------- states etc. */

@@ -9,6 +9,8 @@ description = "Any supported document input -> positional markdown (PMD) in S3, 
 requires-python = ">=3.11"
 dependencies = [
     "fastapi",
+    # /api/v1/process is a multipart upload; FastAPI parses those through python-multipart.
+    "python-multipart",
     "uvicorn[standard]",
     "pydantic>=2",
     "pydantic-settings",

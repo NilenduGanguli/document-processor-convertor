@@ -1,5 +1,5 @@
 /** Layout primitives shared by both pages. Small on purpose. */
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { ApiError } from './api';
 
@@ -73,6 +73,32 @@ export function Chip({ k, v, title }: { k: string; v: ReactNode; title?: string 
   );
 }
 
+/** A sha chip: short prefix shown, the full value copied on click. */
+export function ShaChip({ k, sha }: { k: string; sha: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const t = window.setTimeout(() => setCopied(false), 1200);
+    return () => window.clearTimeout(t);
+  }, [copied]);
+  return (
+    <button
+      type="button"
+      className="chip chip-copy"
+      title={`${sha}\nclick to copy`}
+      onClick={() => {
+        void navigator.clipboard?.writeText(sha).then(
+          () => setCopied(true),
+          () => setCopied(false),
+        );
+      }}
+    >
+      <span className="k">{k}</span>
+      <span className="v mono">{copied ? 'copied' : sha.slice(0, 12)}</span>
+    </button>
+  );
+}
+
 export function Spinner({ label }: { label?: string }) {
   return (
     <span className="row" style={{ gap: 'var(--s-2)' }}>
@@ -109,11 +135,17 @@ export function ErrorNotice({ error }: { error: unknown }) {
       </div>
     );
   }
+  // The service's refusals are structured and name their remedies — show the detail
+  // verbatim, never a bare "failed". 4xx are the service declining, not breaking: warn tone.
   const message =
     api?.message ?? (error instanceof Error ? error.message : 'something went wrong');
+  const refusal = api != null && api.status >= 400 && api.status < 500;
+  const title = api
+    ? `${refusal ? 'refused' : 'failed'} — HTTP ${api.status}${api.code ? ` ${api.code}` : ''}`
+    : 'request failed';
   return (
-    <div className="notice" role="alert">
-      <div className="notice-title">conversion failed{api ? ` (HTTP ${api.status})` : ''}</div>
+    <div className={`notice ${refusal ? 'tone-warn' : ''}`} role="alert">
+      <div className="notice-title">{title}</div>
       <div className="muted">{message}</div>
     </div>
   );

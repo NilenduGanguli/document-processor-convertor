@@ -24,7 +24,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel
 
@@ -476,6 +476,34 @@ def _queue_arrange(
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("arrange enqueue failed error=%s", type(exc).__name__)
+
+
+@app.post("/api/v1/process")
+async def process(
+    background_tasks: BackgroundTasks,
+    file: UploadFile,
+    doc_id: str = Form(""),
+) -> dict[str, Any]:
+    """One file in, one conversion out — the upload-form face of ``/convert``.
+
+    ``/convert`` speaks JSON-with-base64 because service callers already hold bytes in
+    memory; a person (or the console, or a curl one-liner) holds a FILE, and making them
+    base64 it first is friction with no safety payoff. This endpoint accepts exactly one
+    multipart file plus an optional ``doc_id`` form field and DELEGATES to :func:`convert`
+    with the same semantics — one pipeline, so the two faces cannot drift: same routing,
+    same tree/arrange wiring, same refusals (415/422/413), same response row.
+
+        curl -F file=@statement.pdf -F doc_id=case-42 http://localhost:8300/api/v1/process
+    """
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="uploaded file is empty")
+    request = ConvertRequest(
+        doc_id=doc_id,
+        filename=file.filename,
+        content_base64=base64.b64encode(data).decode("ascii"),
+    )
+    return convert(request, background_tasks)
 
 
 @app.post("/api/v1/convert")
