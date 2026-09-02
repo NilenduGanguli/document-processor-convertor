@@ -6,8 +6,15 @@ markdown file** (PMD) in S3, with its record in Postgres. Every downstream AI wo
 consumes documents in exactly one shape: markdown an LLM reads natively, that survives
 chunking, that a human can diff, and that does not lose where things sat on the page.
 
-The format is specified normatively in [`docs/SPEC-PMD.md`](docs/SPEC-PMD.md); the design
-rationale lives in [`docs/DESIGN.md`](docs/DESIGN.md). The short version:
+> **Picking this up cold?** Read [`HANDOFF.md`](HANDOFF.md) first — current state (what is
+> verified by execution versus merely written), how to get running in ten minutes, the
+> decisions not to reverse silently, what to do next, and the traps that cost real time.
+
+The format is specified normatively in [`docs/SPEC-PMD.md`](docs/SPEC-PMD.md), extended by
+[`docs/SPEC-PMD-2.md`](docs/SPEC-PMD-2.md) (spatial canvases) and
+[`docs/specs/SPEC-DOCTREE-1.md`](docs/specs/SPEC-DOCTREE-1.md) (the logical document tree and
+the advisory LLM arrangement pass). Design rationale lives in
+[`docs/DESIGN.md`](docs/DESIGN.md). The short version:
 
 ```markdown
 <!-- @2 [93,319,434,347] title -->
